@@ -2,20 +2,126 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Мои проекты</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Моя Игровая Библиотека</title>
+    <style>
+        /* Основные настройки страницы */
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121212; /* Очень темный фон */
+            background-image: linear-gradient(45deg, #121212 25%, #1a1a1a 25%, #1a1a1a 50%, #121212 50%, #121212 75%, #1a1a1a 75%, #1a1a1a 100%);
+            background-size: 40px 40px; /* Текстура полосок */
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        /* Заголовок */
+        h1 {
+            margin-top: 40px;
+            margin-bottom: 40px;
+            font-size: 3rem;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            text-shadow: 0 0 10px rgba(0, 255, 255, 0.5); /* Неоновое свечение */
+            background: linear-gradient(90deg, #00c6ff, #0072ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Контейнер для списка игр */
+        .game-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            width: 90%;
+            max-width: 1200px;
+            padding-bottom: 50px;
+        }
+
+        /* Сброс стилей списка */
+        ul {
+            display: contents; /* Позволяет li работать внутри grid */
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        /* Карточка игры */
+        li {
+            display: block;
+        }
+
+        /* Ссылка (сама кнопка) */
+        a {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: #1e1e2e;
+            color: #fff;
+            text-decoration: none;
+            height: 150px;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            border: 1px solid #333;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Эффект при наведении */
+        a:hover {
+            transform: translateY(-7px); /* Всплытие */
+            box-shadow: 0 10px 20px rgba(0, 198, 255, 0.3); /* Цветная тень */
+            border-color: #00c6ff;
+            background: #252535;
+        }
+
+        /* Текст внутри карточки */
+        a span {
+            font-size: 1.5rem;
+            font-weight: bold;
+            z-index: 2;
+        }
+
+        /* Добавление иконок через CSS (эмодзи) для красоты */
+        a::before {
+            content: '🎮';
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            opacity: 0.8;
+        }
+
+        /* Индивидуальные иконки для разных игр (по желанию можно убрать) */
+        a[href*="Snake"]::before { content: '🐍'; }
+        a[href*="Tanks"]::before { content: '🚜'; }
+        a[href*="shoter"]::before { content: '🔫'; }
+        a[href*="Stikmen"]::before { content: '🏃'; }
+        a[href*="platformer"]::before { content: '🧱'; }
+    </style>
 </head>
 <body>
-    <h1>Список моих сайтов</h1>
-    <ul>
-        <li><a href="./Snake/">змейка</a></li>
-        <li><a href="./Snake ai/">змейка 2</a></li>
-        <li><a href="./Tanks/">танки</a></li>
-        <li><a href="./Miks/">микс</a></li>
-        <li><a href="./xzxz/">тест</a></li>
-        <li><a href="./StikmenAi/">Стикмены Аи</a></li>
-        <li><a href="./shoter3d/">шутер</a></li>
-        <li><a href="./platformer1/">Платформер</a></li>
-        <li><a href="./snake haos/">Змейка хаос </a></li>
-    </ul>
+
+    <h1>Мои Игры</h1>
+
+    <div class="game-grid">
+        <ul>
+            <li><a href="./Snake/"><span>Змейка</span></a></li>
+            <li><a href="./Snake ai/"><span>Змейка AI</span></a></li>
+            <li><a href="./Tanks/"><span>Танки</span></a></li>
+            <li><a href="./Miks/"><span>Микс</span></a></li>
+            <li><a href="./xzxz/"><span>Тест</span></a></li>
+            <li><a href="./StikmenAi/"><span>Стикмены AI</span></a></li>
+            <li><a href="./shoter3d/"><span>Шутер 3D</span></a></li>
+            <li><a href="./platformer1/"><span>Платформер</span></a></li>
+            <li><a href="./snake haos/"><span>Змейка Хаос</span></a></li>
+        </ul>
+    </div>
+
 </body>
 </html>
