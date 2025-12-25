@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Эволюция Нейросетей</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #1a202c; color: white; font-family: 'Segoe UI', sans-serif; }
+        canvas { display: block; border-radius: 4px; cursor: crosshair; }
+        .panel { background: rgba(30, 41, 59, 0.9); backdrop-filter: blur(5px); }
+    </style>
+</head>
+<body class="flex flex-col h-screen">
+
+    <!-- Header & Controls -->
+    <div class="panel p-4 flex flex-wrap items-center justify-between border-b border-gray-700 z-10 shadow-lg">
+        <div class="flex items-center gap-4">
+            <h1 class="text-xl font-bold text-teal-400">🧬 EvoBots v2</h1>
+            <div class="text-xs text-gray-400 hidden sm:block">
+                Зеленый = Еда (+Здоровье) <br>
+                Красный = Яд (-Здоровье)
+            </div>
+        </div>
+
+        <div class="flex items-center gap-6">
+            <div class="flex flex-col items-center">
+                <span class="text-xs text-gray-400 uppercase tracking-wider">Скорость симуляции</span>
+                <input type="range" id="speedSlider" min="1" max="50" value="1" class="w-32 accent-teal-500">
+            </div>
+            
+            <div class="flex gap-2">
+                <button id="resetBtn" class="px-4 py-2 bg-red-600 hover:bg-red-500 rounded text-sm font-bold transition">Сброс мира</button>
+            </div>
+        </div>
+
+        <div class="text-right">
+            <div class="text-2xl font-mono text-teal-300" id="genCount">Поколение: 1</div>
+            <div class="text-sm text-gray-400" id="aliveCount">Живых: 0</div>
+        </div>
+    </div>
+
+    <!-- Main View -->
+    <div class="flex-1 relative flex bg-gray-900">
+        <!-- Canvas Container -->
+        <div id="canvasContainer" class="flex-1 relative overflow-hidden flex justify-center items-center bg-gray-900">
+            <canvas id="world"></canvas>
+            
+            <!-- Floating Stats for Best Bot -->
+            <div id="botStats" class="absolute top-4 left-4 p-3 bg-black/80 rounded border border-gray-700 hidden pointer-events-none">
+                <h3 class="text-teal-400 font-bold text-sm mb-1">Лучший геном</h3>
+                <div class="text-xs space-y-1 font-mono text-gray-300">
+                    <div>Здоровье: <span id="statHealth">0</span></div>
+                    <div>Возраст: <span id="statAge">0</span></div>
+                    <div class="mt-2 text-gray-500">Видит еду: <span id="statFood" class="text-white">--</span></div>
+                    <div class="text-gray-500">Видит яд: <span id="statPoison" class="text-white">--</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+/**
+ * MATH & UTILS
+ */
+class Vector {
+    constructor(x, y) { this.x = x; this.y = y; }
+    add(v) { this.x += v.x; this.y += v.y; return this; }
+    sub(v) { this.x -= v.x; this.y -= v.y; return this; }
+    mult(n) { this.x *= n; this.y *= n; return this; }
+    mag() { return Math.sqrt(this.x * this.x + this.y * this.y); }
+    setMag(n) { this.normalize(); this.mult(n); return this; }
+    normalize() {
+        let m = this.mag();
+        if (m !== 0) this.mult(1 / m);
+        return this;
+    }
+    limit(max) {
+        if (this.mag() > max) this.setMag(max);
+        return this;
+    }
+    copy() { return new Vector(this.x, this.y); }
+    static dist(v1, v2) { return Math.sqrt((v1.x - v2.x) ** 2 + (v1.y - v2.y) ** 2); }
+}
+
+function random(min, max) { return Math.random() * (max - min) + min; }
+
+/**
+ * NEURAL NETWORK (The Brain)
+ */
+class NeuralNetwork {
+    constructor(inputNodes, hiddenNodes, outputNodes, model = null) {
+        if (model) {
+            this.inputNodes = model.inputNodes;
+            this.hiddenNodes = model.hiddenNodes;
+            this.outputNodes = model.outputNodes;
+            this.weightsIH = model.weightsIH.map(row => [...row]); 
+            this.weightsHO = model.weightsHO.map(row => [...row]); 
+            this.biasH = [...model.biasH];
+            this.biasO = [...model.biasO];
+        } else {
+            this.inputNodes = inputNodes;
+            this.hiddenNodes = hiddenNodes;
+            this.outputNodes = outputNodes;
+            this.weightsIH = new Array(this.hiddenNodes).fill(0).map(() => new Array(this.inputNodes).fill(0).map(() => random(-1, 1)));
+            this.weightsHO = new Array(this.outputNodes).fill(0).map(() => new Array(this.hiddenNodes).fill(0).map(() => random(-1, 1)));
+            this.biasH = new Array(this.hiddenNodes).fill(0).map(() => random(-1, 1));
+            this.biasO = new Array(this.outputNodes).fill(0).map(() => random(-1, 1));
+        }
+    }
+
+    predict(inputArray) {
+        let hidden = [];
+        for (let i = 0; i < this.hiddenNodes; i++) {
+            let sum = 0;
+            for (let j = 0; j < this.inputNodes; j++) {
+                sum += inputArray[j] * this.weightsIH[i][j];
+            }
+            sum += this.biasH[i];
+            hidden[i] = Math.tanh(sum); 
+        }
+
+        let output = [];
+        for (let i = 0; i < this.outputNodes; i++) {
+            let sum = 0;
+            for (let j = 0; j < this.hiddenNodes; j++) {
+                sum += hidden[j] * this.weightsHO[i][j];
+            }
+            sum += this.biasO[i];
+            output[i] = Math.tanh(sum); 
+        }
+        return output;
+    }
+
+    mutate(rate) {
+        const mutateVal = (val) => {
+            if (Math.random() < rate) return val + random(-0.1, 0.1); 
+            return val;
+        };
+
+        this.weightsIH = this.weightsIH.map(row => row.map(mutateVal));
+        this.weightsHO = this.weightsHO.map(row => row.map(mutateVal));
+        this.biasH = this.biasH.map(mutateVal);
+        this.biasO = this.biasO.map(mutateVal);
+    }
+}
+
+/**
+ * THE BOT
+ */
+class Bot {
+    constructor(x, y, brain = null) {
+        this.pos = new Vector(x, y);
+        this.vel = new Vector(0, -2);
+        this.acc = new Vector(0, 0);
+        this.r = 6;
+        this.maxSpeed = 3.5; // Slightly faster to reach food
+        this.maxForce = 0.5;
+        
+        this.health = 1; 
+        this.age = 0;
+        
+        // --- BALANCE CHANGES ---
+        this.sightRange = 175; // Increased from 100 to 175
+        // -----------------------
+        
+        this.brain = brain ? brain : new NeuralNetwork(4, 8, 2);
+
+        this.fitness = 0;
+        this.dead = false;
+        
+        this.closestFood = null;
+        this.closestPoison = null;
+    }
+
+    update(food, poison) {
+        // --- BALANCE CHANGES ---
+        this.health -= 0.002; // Reduced hunger decay (was 0.004)
+        // -----------------------
+        
+        this.age++;
+
+        let foodInfo = this.getClosest(food);
+        let poisonInfo = this.getClosest(poison);
+        
+        this.closestFood = foodInfo.obj;
+        this.closestPoison = poisonInfo.obj;
+
+        let inputs = [
+            foodInfo.dist / this.sightRange, 
+            foodInfo.angle / Math.PI,        
+            poisonInfo.dist / this.sightRange, 
+            poisonInfo.angle / Math.PI       
+        ];
+
+        let outputs = this.brain.predict(inputs);
+
+        let angle = outputs[0] * Math.PI; 
+        let speed = (outputs[1] + 1) / 2; 
+
+        let desired = new Vector(this.vel.x, this.vel.y);
+        desired.normalize();
+        
+        let currentAngle = Math.atan2(this.vel.y, this.vel.x);
+        let newAngle = currentAngle + (outputs[0] * 0.25); // Slightly sharper turns allowed
+        
+        this.vel.x = Math.cos(newAngle);
+        this.vel.y = Math.sin(newAngle);
+        this.vel.setMag(this.maxSpeed * (0.5 + speed * 0.5)); 
+
+        this.pos.add(this.vel);
+
+        if (this.pos.x < -this.r) this.pos.x = width + this.r;
+        if (this.pos.y < -this.r) this.pos.y = height + this.r;
+        if (this.pos.x > width + this.r) this.pos.x = -this.r;
+        if (this.pos.y > height + this.r) this.pos.y = -this.r;
+
+        if (this.health <= 0) this.dead = true;
+    }
+
+    getClosest(list) {
+        let record = Infinity;
+        let closest = null;
+        
+        for (let i = 0; i < list.length; i++) {
+            let d = Vector.dist(this.pos, list[i]);
+            if (d < record && d < this.sightRange) {
+                record = d;
+                closest = list[i];
+            }
+        }
+
+        let angle = 0;
+        if (closest) {
+            let diff = closest.copy().sub(this.pos);
+            let heading = Math.atan2(this.vel.y, this.vel.x);
+            let targetHeading = Math.atan2(diff.y, diff.x);
+            angle = targetHeading - heading;
+            
+            while (angle > Math.PI) angle -= Math.PI * 2;
+            while (angle < -Math.PI) angle += Math.PI * 2;
+        }
+
+        return { 
+            obj: closest, 
+            dist: closest ? record : this.sightRange, 
+            angle: angle 
+        };
+    }
+
+    eat(list, nutrition) {
+        for (let i = list.length - 1; i >= 0; i--) {
+            let d = Vector.dist(this.pos, list[i]);
+            if (d < this.r + 4) { 
+                list.splice(i, 1);
+                this.health += nutrition;
+                if (nutrition > 0) this.fitness += 1.5; // Increased reward weighting
+                if (this.health > 1) this.health = 1;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    show(ctx, isBest = false) {
+        let g = Math.floor(this.health * 255);
+        let r = Math.floor((1 - this.health) * 255);
+        
+        ctx.save();
+        ctx.translate(this.pos.x, this.pos.y);
+        ctx.rotate(Math.atan2(this.vel.y, this.vel.x) + Math.PI / 2);
+
+        if (isBest) {
+             ctx.beginPath();
+             ctx.arc(0, 0, this.sightRange, 0, Math.PI * 2);
+             ctx.strokeStyle = "rgba(255, 255, 255, 0.1)";
+             ctx.stroke();
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(0, -this.r * 2);
+        ctx.lineTo(-this.r, this.r * 2);
+        ctx.lineTo(this.r, this.r * 2);
+        ctx.closePath();
+        
+        if (isBest) {
+            ctx.fillStyle = "#00FFFF"; 
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = "#00FFFF";
+        } else {
+            ctx.fillStyle = `rgb(${r},${g},0)`;
+            ctx.shadowBlur = 0;
+        }
+        ctx.fill();
+        
+        ctx.restore();
+
+        if (isBest) {
+            if (this.closestFood) {
+                ctx.beginPath();
+                ctx.moveTo(this.pos.x, this.pos.y);
+                ctx.lineTo(this.closestFood.x, this.closestFood.y);
+                ctx.strokeStyle = "rgba(0,255,0,0.5)";
+                ctx.stroke();
+            }
+        }
+    }
+}
+
+/**
+ * GAME ENGINE
+ */
+const canvas = document.getElementById('world');
+const ctx = canvas.getContext('2d');
+const genCountEl = document.getElementById('genCount');
+const aliveCountEl = document.getElementById('aliveCount');
+const speedSlider = document.getElementById('speedSlider');
+const resetBtn = document.getElementById('resetBtn');
+
+const statHealth = document.getElementById('statHealth');
+const statAge = document.getElementById('statAge');
+const statFood = document.getElementById('statFood');
+const statPoison = document.getElementById('statPoison');
+const botStatsPanel = document.getElementById('botStats');
+
+let width, height;
+let bots = [];
+let food = [];
+let poison = [];
+let generation = 1;
+let bestGenome = null;
+
+// --- BALANCE CHANGES ---
+const POPULATION_SIZE = 50; // More bots
+const FOOD_COUNT = 80;      // More food (was 50)
+const POISON_COUNT = 20;
+const MUTATION_RATE = 0.1;
+// -----------------------
+
+function resize() {
+    const container = document.getElementById('canvasContainer');
+    width = container.clientWidth;
+    height = container.clientHeight;
+    canvas.width = width;
+    canvas.height = height;
+}
+
+function init() {
+    resize();
+    bots = [];
+    food = [];
+    poison = [];
+    generation = 1;
+    bestGenome = null;
+    
+    for (let i = 0; i < POPULATION_SIZE; i++) {
+        bots.push(new Bot(random(0, width), random(0, height)));
+    }
+    
+    for (let i = 0; i < FOOD_COUNT; i++) {
+        food.push(new Vector(random(0, width), random(0, height)));
+    }
+    
+    for (let i = 0; i < POISON_COUNT; i++) {
+        poison.push(new Vector(random(0, width), random(0, height)));
+    }
+    
+    animate();
+}
+
+function nextGeneration() {
+    generation++;
+    
+    let deadBots = bots.filter(b => b.dead);
+    let survivors = bots.filter(b => !b.dead);
+    let allBots = [...deadBots, ...survivors];
+    
+    allBots.sort((a, b) => (b.fitness + b.age/1000) - (a.fitness + a.age/1000));
+    
+    bestGenome = allBots[0].brain; 
+    
+    let newBots = [];
+    
+    newBots.push(new Bot(random(0, width), random(0, height), new NeuralNetwork(null,null,null, allBots[0].brain)));
+    newBots.push(new Bot(random(0, width), random(0, height), new NeuralNetwork(null,null,null, allBots[1].brain)));
+    
+    for (let i = 2; i < POPULATION_SIZE; i++) {
+        let parentA = allBots[Math.floor(random(0, allBots.length * 0.4))]; // Top 40%
+        
+        let childBrain = new NeuralNetwork(null,null,null, parentA.brain);
+        childBrain.mutate(MUTATION_RATE);
+        
+        newBots.push(new Bot(random(0, width), random(0, height), childBrain));
+    }
+    
+    bots = newBots;
+    
+    food = [];
+    poison = [];
+    for (let i = 0; i < FOOD_COUNT; i++) food.push(new Vector(random(0, width), random(0, height)));
+    for (let i = 0; i < POISON_COUNT; i++) poison.push(new Vector(random(0, width), random(0, height)));
+}
+
+function drawItems(list, color) {
+    ctx.fillStyle = color;
+    for (let item of list) {
+        ctx.beginPath();
+        ctx.arc(item.x, item.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+function animate() {
+    const cycles = parseInt(speedSlider.value);
+
+    for (let n = 0; n < cycles; n++) {
+        // --- BALANCE CHANGES: More frequent spawns ---
+        if (random(0, 1) < 0.1) food.push(new Vector(random(0, width), random(0, height)));
+        if (random(0, 1) < 0.01) poison.push(new Vector(random(0, width), random(0, height)));
+        
+        if (food.length > 150) food.shift(); // Higher cap
+        if (poison.length > 50) poison.shift();
+
+        let aliveCount = 0;
+        let currentBest = bots[0];
+
+        for (let bot of bots) {
+            if (bot.dead) continue;
+            aliveCount++;
+            
+            bot.update(food, poison);
+            bot.eat(food, 0.25); // Slightly more health from food
+            bot.eat(poison, -0.8); 
+            
+            if (bot.health > currentBest.health) currentBest = bot;
+        }
+
+        if (aliveCount === 0) {
+            nextGeneration();
+            break; 
+        }
+        
+        if (n === cycles - 1) {
+            aliveCountEl.innerText = `Живых: ${aliveCount}`;
+            genCountEl.innerText = `Поколение: ${generation}`;
+            
+            if (currentBest && !currentBest.dead) {
+                 botStatsPanel.style.display = 'block';
+                 statHealth.innerText = (currentBest.health * 100).toFixed(0) + '%';
+                 statAge.innerText = currentBest.age;
+                 statFood.innerText = currentBest.closestFood ? Math.round(Vector.dist(currentBest.pos, currentBest.closestFood)) : 'Нет';
+                 statPoison.innerText = currentBest.closestPoison ? Math.round(Vector.dist(currentBest.pos, currentBest.closestPoison)) : 'Нет';
+            } else {
+                 botStatsPanel.style.display = 'none';
+            }
+        }
+    }
+
+    ctx.fillStyle = '#111827'; 
+    ctx.fillRect(0, 0, width, height);
+
+    drawItems(food, '#34D399'); 
+    drawItems(poison, '#EF4444'); 
+
+    let bestBot = bots.find(b => !b.dead);
+    let maxFit = -Infinity;
+    bots.forEach(b => {
+        if (!b.dead && b.health > maxFit) {
+            maxFit = b.health;
+            bestBot = b;
+        }
+    });
+
+    for (let bot of bots) {
+        if (!bot.dead) {
+            bot.show(ctx, bot === bestBot);
+        }
+    }
+
+    requestAnimationFrame(animate);
+}
+
+window.addEventListener('resize', () => {
+    resize();
+});
+
+resetBtn.addEventListener('click', init);
+
+init();
+
+</script>
+</body>
+</html>

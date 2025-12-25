@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Snake AI: Scalable Grid</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+        
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: #020617; /* slate-950 */
+            color: #e2e8f0;
+            overflow: hidden;
+        }
+
+        /* Неоновое свечение для канваса */
+        canvas {
+            image-rendering: pixelated;
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+            border: 1px solid #334155;
+        }
+
+        .control-panel {
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(4px);
+            border-top: 1px solid #1e293b;
+        }
+
+        input[type=range] {
+            -webkit-appearance: none; 
+            background: transparent; 
+        }
+        
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #6366f1;
+            margin-top: -6px;
+            box-shadow: 0 0 10px #6366f1;
+            cursor: pointer;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            background: #334155;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body class="h-screen w-full flex flex-col">
+
+    <!-- Main Game Area -->
+    <div class="flex-grow flex items-center justify-center relative bg-slate-900 p-4">
+        
+        <!-- Stats Overlay (Top Left) -->
+        <div class="absolute top-4 left-4 text-xs md:text-sm space-y-1 pointer-events-none opacity-80">
+            <div>SCORE: <span id="scoreVal" class="text-green-400 font-bold">0</span></div>
+            <div>GEN: <span id="genVal" class="text-blue-400 font-bold">1</span></div>
+            <div id="statusVal" class="text-gray-500">IDLE</div>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <!-- Controls Bottom Panel -->
+    <div class="control-panel p-4 md:p-6 flex flex-col gap-4 z-10 shrink-0">
+        
+        <div class="flex flex-col md:flex-row gap-6 md:items-center justify-center max-w-4xl mx-auto w-full">
+            
+            <!-- Grid Size Control -->
+            <div class="flex-1">
+                <div class="flex justify-between mb-2">
+                    <label class="text-xs font-bold text-gray-400">РАЗМЕР ПОЛЯ</label>
+                    <span id="gridSizeLabel" class="text-xs font-bold text-indigo-400">20x20</span>
+                </div>
+                <input type="range" id="gridSizeInput" min="5" max="50" value="20" class="w-full">
+                <div class="flex justify-between text-[10px] text-gray-600 mt-1">
+                    <span>5x5 (Hard)</span>
+                    <span>50x50 (Huge)</span>
+                </div>
+            </div>
+
+            <!-- Speed Control -->
+            <div class="flex-1">
+                <div class="flex justify-between mb-2">
+                    <label class="text-xs font-bold text-gray-400">СКОРОСТЬ СИМУЛЯЦИИ</label>
+                    <span id="speedLabel" class="text-xs font-bold text-yellow-400">Medium</span>
+                </div>
+                <input type="range" id="speedInput" min="1" max="100" value="50" class="w-full">
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex items-end">
+                <button onclick="resetGame()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2 px-6 rounded shadow-lg transition-transform active:scale-95 w-full md:w-auto h-10">
+                    ПЕРЕЗАПУСК
+                </button>
+            </div>
+        </div>
+    </div>
+
+<script>
+/**
+ * --- CONFIGURATION ---
+ */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// UI Elements
+const scoreEl = document.getElementById('scoreVal');
+const genEl = document.getElementById('genVal');
+const statusEl = document.getElementById('statusVal');
+const gridSizeInput = document.getElementById('gridSizeInput');
+const gridSizeLabel = document.getElementById('gridSizeLabel');
+const speedInput = document.getElementById('speedInput');
+const speedLabel = document.getElementById('speedLabel');
+
+// Game Constants
+const CANVAS_PIXEL_SIZE = Math.min(window.innerWidth - 40, window.innerHeight - 200, 600); // Responsive canvas size
+canvas.width = CANVAS_PIXEL_SIZE;
+canvas.height = CANVAS_PIXEL_SIZE;
+
+// Game State
+let TILE_COUNT = 20;
+let TILE_SIZE = CANVAS_PIXEL_SIZE / TILE_COUNT;
+let snake = [];
+let food = null;
+let score = 0;
+let generation = 1;
+let gameLoopTimeout;
+let isPlaying = false;
+
+// AI Memory
+let currentPath = [];
+
+/**
+ * --- INITIALIZATION & EVENTS ---
+ */
+function init() {
+    // Listeners
+    gridSizeInput.addEventListener('input', (e) => {
+        TILE_COUNT = parseInt(e.target.value);
+        gridSizeLabel.innerText = `${TILE_COUNT}x${TILE_COUNT}`;
+        TILE_SIZE = CANVAS_PIXEL_SIZE / TILE_COUNT;
+        resetGame();
+    });
+
+    speedInput.addEventListener('input', updateSpeedLabel);
+
+    updateSpeedLabel();
+    resetGame();
+}
+
+function updateSpeedLabel() {
+    const val = parseInt(speedInput.value);
+    let label = "Normal";
+    if (val > 80) label = "TURBO (Max)";
+    else if (val > 50) label = "Fast";
+    else if (val < 20) label = "Slow Motion";
+    speedLabel.innerText = label;
+}
+
+function resetGame() {
+    clearTimeout(gameLoopTimeout);
+    
+    // Reset Logic
+    snake = [{x: Math.floor(TILE_COUNT/2), y: Math.floor(TILE_COUNT/2)}];
+    score = 0;
+    currentPath = [];
+    scoreEl.innerText = score;
+    
+    spawnFood();
+    isPlaying = true;
+    gameLoop();
+}
+
+function spawnFood() {
+    // Safety check for full board
+    if (snake.length >= TILE_COUNT * TILE_COUNT) return;
+
+    let valid = false;
+    while (!valid) {
+        const fx = Math.floor(Math.random() * TILE_COUNT);
+        const fy = Math.floor(Math.random() * TILE_COUNT);
+        
+        // Check collision with snake
+        valid = !snake.some(s => s.x === fx && s.y === fy);
+        
+        if (valid) {
+            food = {x: fx, y: fy};
+        }
+    }
+}
+
+/**
+ * --- GAME LOOP ---
+ */
+function gameLoop() {
+    if (!isPlaying) return;
+
+    const startTime = performance.now();
+
+    update();
+    draw();
+
+    // Calculate delay based on speed slider
+    // Slider 1 (Slow) -> 200ms
+    // Slider 100 (Max) -> 0ms (As fast as possible)
+    const speedVal = parseInt(speedInput.value);
+    let delay = Math.max(0, 200 - (speedVal * 2));
+    
+    // If Max speed, use requestAnimationFrame for smooth max performance without delay
+    if (speedVal >= 95) {
+        requestAnimationFrame(gameLoop);
+    } else {
+        gameLoopTimeout = setTimeout(() => {
+            requestAnimationFrame(gameLoop);
+        }, delay);
+    }
+}
+
+/**
+ * --- AI LOGIC (The Brain) ---
+ */
+function update() {
+    const head = snake[0];
+    
+    // 1. Calculate Move
+    let nextMove = getSmartMove(head);
+
+    // 2. Apply Move
+    if (nextMove) {
+        // Strict Boundary Check (Fix for "flying off")
+        if (nextMove.x < 0 || nextMove.x >= TILE_COUNT || nextMove.y < 0 || nextMove.y >= TILE_COUNT) {
+            console.error("AI tried to go out of bounds!", nextMove);
+            gameOver();
+            return;
+        }
+
+        snake.unshift(nextMove);
+
+        // 3. Eat or Move Tail
+        if (nextMove.x === food.x && nextMove.y === food.y) {
+            score++;
+            scoreEl.innerText = score;
+            spawnFood();
+            // Don't pop tail (grow)
+        } else {
+            snake.pop();
+        }
+
+        // 4. Self Collision Check
+        // We check index 1 onwards because 0 is the new head
+        if (isCollision(nextMove, snake.slice(1))) {
+            gameOver();
+        }
+    } else {
+        // No move found (Trapped)
+        statusEl.innerText = "TRAPPED";
+        statusEl.className = "text-red-500 font-bold";
+        gameOver();
+    }
+}
+
+function getSmartMove(head) {
+    // Strategy 1: Find Path to Food (BFS)
+    // We pass the snake body as obstacles
+    const pathToFood = bfs(head, food, snake);
+
+    // If path found, simulate it to see if it's safe
+    if (pathToFood.length > 0) {
+        const virtualSnake = simulateMove(snake, pathToFood);
+        const virtualTail = virtualSnake[virtualSnake.length - 1];
+        
+        // Check if we can reach our own tail after eating
+        // This ensures we don't trap ourselves
+        const pathToTail = bfs(virtualSnake[0], virtualTail, virtualSnake.slice(0, -1));
+
+        if (pathToTail.length > 0 || snake.length < 5) { // <5 is startup grace
+            statusEl.innerText = "HUNTING";
+            statusEl.className = "text-blue-400";
+            currentPath = pathToFood;
+            return pathToFood[0];
+        }
+    }
+
+    // Strategy 2: If food path is unsafe or blocked -> FOLLOW TAIL (Stall)
+    // We try to go to the tail to wait for space to open up.
+    // We want the LONGEST path to tail ideally, but BFS gives shortest.
+    // We will try to pick a neighbor that has a path to tail.
+    
+    statusEl.innerText = "STALLING";
+    statusEl.className = "text-yellow-400";
+    
+    const tail = snake[snake.length - 1];
+    const neighbors = getNeighbors(head);
+    
+    // Shuffle neighbors to avoid bias
+    neighbors.sort(() => Math.random() - 0.5);
+
+    let bestStallMove = null;
+    let maxSpace = -1;
+
+    for (let move of neighbors) {
+        if (!isCollision(move, snake.slice(0, -1))) { // Treat tail as walkable for next frame
+            // Can we reach the tail from this neighbor?
+            // Pass snake without tail as obstacle
+            const p = bfs(move, tail, snake.slice(0, -1));
+            
+            if (p.length > 0) {
+                // If we can reach tail, this is a valid stall move.
+                // Simple heuristic: pick the one that has most free space around it (Flood Fill lite)
+                let space = countFreeSpace(move, snake, 20); // limit depth for perf
+                if (space > maxSpace) {
+                    maxSpace = space;
+                    bestStallMove = move;
+                    currentPath = p; // visualize path to tail
+                }
+            }
+        }
+    }
+
+    if (bestStallMove) return bestStallMove;
+
+    // Strategy 3: Panic (Just pick any valid neighbor)
+    for (let move of neighbors) {
+        if (!isCollision(move, snake.slice(0, -1))) {
+            return move;
+        }
+    }
+
+    return null; // Death
+}
+
+/**
+ * --- ALGORITHMS ---
+ */
+
+// Breadth-First Search (Shortest Path)
+function bfs(start, target, obstacles) {
+    const queue = [[start]];
+    const visited = new Set();
+    const obstacleSet = new Set(obstacles.map(p => `${p.x},${p.y}`));
+    
+    visited.add(`${start.x},${start.y}`);
+
+    while (queue.length > 0) {
+        const path = queue.shift();
+        const head = path[path.length - 1];
+
+        if (head.x === target.x && head.y === target.y) {
+            return path.slice(1); // Return path excluding start
+        }
+
+        const neighbors = getNeighbors(head);
+        for (let next of neighbors) {
+            const key = `${next.x},${next.y}`;
+            
+            // Allow stepping on target even if it's currently an obstacle (e.g. tail chasing)
+            const isTarget = (next.x === target.x && next.y === target.y);
+            
+            if (!visited.has(key)) {
+                if (!obstacleSet.has(key) || isTarget) {
+                    visited.add(key);
+                    queue.push([...path, next]);
+                }
+            }
+        }
+    }
+    return [];
+}
+
+function getNeighbors(pos) {
+    const moves = [
+        {x: pos.x, y: pos.y - 1}, // Up
+        {x: pos.x, y: pos.y + 1}, // Down
+        {x: pos.x - 1, y: pos.y}, // Left
+        {x: pos.x + 1, y: pos.y}  // Right
+    ];
+    // Filter out of bounds immediately
+    return moves.filter(p => p.x >= 0 && p.x < TILE_COUNT && p.y >= 0 && p.y < TILE_COUNT);
+}
+
+function isCollision(pos, snakeBody) {
+    return snakeBody.some(s => s.x === pos.x && s.y === pos.y);
+}
+
+// Counts accessible empty cells (Limited Depth BFS/FloodFill)
+function countFreeSpace(start, obstacles, limit) {
+    let q = [start];
+    let visited = new Set(obstacles.map(p => `${p.x},${p.y}`));
+    visited.add(`${start.x},${start.y}`);
+    let count = 0;
+
+    while(q.length > 0 && count < limit) {
+        let curr = q.shift();
+        count++;
+        for(let n of getNeighbors(curr)) {
+            let key = `${n.x},${n.y}`;
+            if(!visited.has(key)) {
+                visited.add(key);
+                q.push(n);
+            }
+        }
+    }
+    return count;
+}
+
+function simulateMove(currSnake, path) {
+    // Quick simulation: Create new head at path end, remove tail relative to length increase
+    // Note: This is an approximation. For exact safety, we assume we grew by 1.
+    const sim = JSON.parse(JSON.stringify(currSnake));
+    // Add path
+    for (let p of path) {
+        sim.unshift(p);
+    }
+    // Remove tail segments. If path len is 5, we moved 5 steps. 
+    // Snake grows by 1. So we remove 4 segments.
+    // If we just ate (path reached food), we grow.
+    // Logic: New Length = Old Length + 1. 
+    // Sim array length = Old Length + Path Length.
+    // We want to keep (Old Length + 1) elements.
+    const targetLen = currSnake.length + 1;
+    while(sim.length > targetLen) {
+        sim.pop();
+    }
+    return sim;
+}
+
+function gameOver() {
+    isPlaying = false;
+    generation++;
+    genEl.innerText = generation;
+    // Auto restart
+    setTimeout(resetGame, 500);
+}
+
+/**
+ * --- RENDERER ---
+ */
+function draw() {
+    // Clear
+    ctx.fillStyle = "#0f172a";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Grid (Subtle)
+    if (TILE_COUNT <= 30) { // Don't draw grid lines on huge maps (too noisy)
+        ctx.strokeStyle = "#1e293b";
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= TILE_COUNT; i++) {
+            let p = Math.floor(i * TILE_SIZE);
+            ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, canvas.height); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(canvas.width, p); ctx.stroke();
+        }
+    }
+
+    // Path (AI Thought)
+    if (currentPath.length > 0) {
+        ctx.strokeStyle = "rgba(59, 130, 246, 0.3)";
+        ctx.lineWidth = Math.max(1, TILE_SIZE / 4);
+        ctx.beginPath();
+        let start = snake[0];
+        ctx.moveTo(start.x * TILE_SIZE + TILE_SIZE/2, start.y * TILE_SIZE + TILE_SIZE/2);
+        for (let p of currentPath) {
+            ctx.lineTo(p.x * TILE_SIZE + TILE_SIZE/2, p.y * TILE_SIZE + TILE_SIZE/2);
+        }
+        ctx.stroke();
+    }
+
+    // Snake
+    snake.forEach((s, i) => {
+        let x = s.x * TILE_SIZE;
+        let y = s.y * TILE_SIZE;
+        
+        // Dynamic padding based on size
+        let pad = TILE_COUNT > 30 ? 0 : 1; 
+
+        if (i === 0) {
+            ctx.fillStyle = "#818cf8"; // Head
+            // Glow
+            ctx.shadowColor = "#6366f1";
+            ctx.shadowBlur = TILE_SIZE;
+        } else {
+            // Gradient Body
+            let blue = 200 - Math.min(150, (i * 2));
+            ctx.fillStyle = `rgb(50, 60, ${blue})`;
+            ctx.shadowBlur = 0;
+        }
+
+        ctx.fillRect(x + pad, y + pad, TILE_SIZE - pad*2, TILE_SIZE - pad*2);
+        ctx.shadowBlur = 0; // Reset
+    });
+
+    // Food
+    if (food) {
+        let fx = food.x * TILE_SIZE + TILE_SIZE/2;
+        let fy = food.y * TILE_SIZE + TILE_SIZE/2;
+        let r = (TILE_SIZE / 2) * 0.8;
+        
+        ctx.fillStyle = "#ef4444";
+        ctx.beginPath();
+        ctx.arc(fx, fy, r, 0, Math.PI*2);
+        ctx.fill();
+    }
+}
+
+// Start
+init();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Tank Evo 13.0 - Arcade Physics</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto+Mono:wght@400;700&display=swap');
+
+        :root {
+            --accent: #00f3ff;
+            --danger: #ff0055;
+            --bg-dark: #050508;
+            --panel-bg: #111116;
+            --text-main: #e0e0e0;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            font-family: 'Roboto Mono', monospace;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #game-container {
+            height: 70vh;
+            position: relative;
+            background: radial-gradient(circle at center, #15151a 0%, #000 100%);
+            border-bottom: 1px solid #333;
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.1);
+        }
+
+        canvas { display: block; width: 100%; height: 100%; }
+
+        #ui-panel {
+            height: 30vh;
+            background-color: var(--panel-bg);
+            display: flex;
+            flex-direction: column;
+            padding: 10px 20px;
+            gap: 8px;
+            box-sizing: border-box;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255,255,255,0.03);
+            padding: 6px 15px;
+            border-radius: 4px;
+            border: 1px solid #222;
+        }
+
+        .stat-item { font-size: 11px; color: #888; display: flex; align-items: center; gap: 10px; }
+        .stat-val { font-family: 'Orbitron', sans-serif; font-size: 14px; font-weight: bold; color: #fff; }
+
+        .controls-row { display: flex; gap: 5px; }
+        .speed-group { flex: 3; display: flex; gap: 2px; }
+        .action-group { flex: 1; display: flex; }
+
+        button {
+            flex: 1;
+            background: #1a1a20;
+            border: 1px solid #333;
+            color: #888;
+            padding: 6px 0;
+            cursor: pointer;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 10px;
+            border-radius: 3px;
+            transition: all 0.1s;
+        }
+        button:hover { background: #2a2a30; color: #fff; }
+        button.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: bold; }
+        button.save-btn { background: #223344; color: var(--accent); border-color: #334455; }
+
+        .table-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            border: 1px solid #222;
+            border-radius: 4px;
+            background: rgba(0,0,0,0.2);
+            position: relative;
+        }
+
+        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        thead { background: #1a1a20; position: sticky; top: 0; z-index: 10; }
+        th { text-align: left; padding: 6px 12px; color: #666; font-weight: normal; font-size: 9px; letter-spacing: 1px; }
+        td { padding: 4px 12px; border-bottom: 1px solid #1a1a20; color: #bbb; }
+        tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+        .tank-dot { width: 6px; height: 6px; display: inline-block; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+        .win-badge { color: #ffd700; font-weight: bold; }
+        
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #111; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <div id="ui-panel">
+        <div class="info-row">
+            <div class="stat-item">ПОКОЛЕНИЕ <span class="stat-val" style="color:var(--accent)" id="gen-count">1</span></div>
+            <div class="stat-item">ВРЕМЯ <span class="stat-val" id="timer">0s</span></div>
+            <div class="stat-item">ЖИВЫХ <span class="stat-val" style="color:#ff0055" id="alive-count">8</span></div>
+        </div>
+
+        <div class="controls-row">
+            <div class="speed-group">
+                <button onclick="setSpeed(0.5)">0.5x</button>
+                <button onclick="setSpeed(1)" class="active" id="btn-1x">1x</button>
+                <button onclick="setSpeed(10)">10x</button>
+                <button onclick="setSpeed(50)">50x</button>
+                <button onclick="setSpeed(1000)">MAX</button>
+            </div>
+            <div class="action-group">
+                <button class="save-btn" onclick="downloadGenes()">СКАЧАТЬ ГЕНЫ</button>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <table id="stats-table">
+                <thead>
+                    <tr>
+                        <th style="width: 30%">Бот</th>
+                        <th style="width: 20%">Урон</th>
+                        <th style="width: 15%">Киллы</th>
+                        <th style="width: 15%">Бонусы</th>
+                        <th style="width: 20%">Победы</th>
+                    </tr>
+                </thead>
+                <tbody id="stats-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const PI = Math.PI;
+        const TWO_PI = PI * 2;
+        const dist = (x1, y1, x2, y2) => Math.hypot(x2 - x1, y2 - y1);
+        const normalizeAngle = (a) => {
+            a = a % TWO_PI;
+            if (a > PI) a -= TWO_PI;
+            if (a < -PI) a += TWO_PI;
+            return a;
+        };
+
+        const CONFIG = {
+            popSize: 8,
+            tankRadius: 16,
+            roundDuration: 4500, // 75s
+            mutationRate: 0.1,
+            bonusChance: 0.008, 
+            zoneDamage: 0.8 
+        };
+
+        const globalWins = new Array(CONFIG.popSize).fill(0);
+
+        class NeuralNet {
+            constructor(inputNodes, outputNodes) {
+                this.weights = [];
+                this.biases = [];
+                for(let i=0; i<outputNodes; i++) {
+                    let w = [];
+                    for(let j=0; j<inputNodes; j++) w.push(Math.random()*2-1);
+                    this.weights.push(w);
+                    this.biases.push(Math.random()*2-1);
+                }
+            }
+            
+            predict(inputs) {
+                return this.weights.map((wRow, i) => {
+                    let sum = this.biases[i];
+                    for(let j=0; j<wRow.length; j++) sum += inputs[j] * wRow[j];
+                    return Math.tanh(sum); 
+                });
+            }
+
+            copy() {
+                let n = new NeuralNet(0,0);
+                n.weights = JSON.parse(JSON.stringify(this.weights));
+                n.biases = JSON.parse(JSON.stringify(this.biases));
+                return n;
+            }
+
+            mutate() {
+                for(let i=0; i<this.weights.length; i++) {
+                    if(Math.random() < CONFIG.mutationRate) this.biases[i] += (Math.random()*2-1)*0.5;
+                    for(let j=0; j<this.weights[i].length; j++) {
+                        if(Math.random() < CONFIG.mutationRate) {
+                            this.weights[i][j] += (Math.random()*2-1)*0.5;
+                            if(this.weights[i][j] > 8) this.weights[i][j] = 8;
+                            if(this.weights[i][j] < -8) this.weights[i][j] = -8;
+                        }
+                    }
+                }
+            }
+        }
+
+        class Bonus {
+            constructor(x, y, type) {
+                this.x = x; this.y = y;
+                this.type = type; // 0: Health, 1: Shield
+                this.active = true;
+                this.pulse = 0;
+            }
+            draw(ctx) {
+                if(!this.active) return;
+                this.pulse += 0.1;
+                let s = 10 + Math.sin(this.pulse) * 2;
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                if (this.type === 0) {
+                    ctx.fillStyle = '#00ff00';
+                    ctx.shadowColor = '#00ff00';
+                    ctx.shadowBlur = 10;
+                    ctx.fillRect(-s/2, -s/6, s, s/3);
+                    ctx.fillRect(-s/6, -s/2, s/3, s);
+                } else {
+                    ctx.strokeStyle = '#0088ff';
+                    ctx.shadowColor = '#0088ff';
+                    ctx.shadowBlur = 10;
+                    ctx.lineWidth = 3;
+                    ctx.beginPath(); ctx.arc(0, 0, s/1.5, 0, TWO_PI); ctx.stroke();
+                    ctx.fillStyle = 'rgba(0, 136, 255, 0.5)';
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+
+        class Bullet {
+            constructor(x, y, angle, owner) {
+                this.x = x; this.y = y;
+                this.vx = Math.cos(angle) * 10;
+                this.vy = Math.sin(angle) * 10;
+                this.owner = owner;
+                this.active = true;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                if(this.x < 0 || this.x > canvas.width || this.y < 0 || this.y > canvas.height) this.active = false;
+            }
+            draw(ctx) {
+                ctx.fillStyle = '#fff';
+                ctx.beginPath(); ctx.arc(this.x, this.y, 4, 0, TWO_PI); ctx.fill();
+            }
+        }
+
+        class Tank {
+            constructor(id, x, y, brain) {
+                this.id = id;
+                this.x = x; this.y = y;
+                this.bodyAngle = 0; // Visual only
+                this.turretAngle = Math.random() * TWO_PI;
+                
+                // ARCADE PHYSICS: Direct X/Y Control
+                // 8 Inputs: dX_Enemy, dY_Enemy, TurAngE, AngBul, Zone, dX_Bonus, dY_Bonus, Shield
+                // 4 Outputs: MoveX, MoveY, TurTurn, Shoot
+                this.brain = brain || new NeuralNet(8, 4); 
+                
+                this.active = true;
+                this.health = 100;
+                this.shieldTime = 0;
+                this.cooldown = 0;
+                
+                this.damage = 0;
+                this.kills = 0;
+                this.timeAlive = 0;
+                this.bonusesCollected = 0;
+                this.zoneDeath = false;
+                
+                this.targetBonus = null; 
+                this.color = `hsl(${Math.random() * 360}, 75%, 60%)`;
+            }
+
+            getSensors(others, bullets, bonuses, currentZoneR) {
+                let findNearest = (list, isEnemy) => {
+                    let nearest = null, minDist = Infinity;
+                    list.forEach(item => {
+                        if(item.active && (isEnemy ? item !== this : true)) {
+                            if (isEnemy && item.owner === this.id) return; 
+                            let d = dist(this.x, this.y, item.x, item.y);
+                            if(d < minDist) { minDist = d; nearest = item; }
+                        }
+                    });
+                    return { item: nearest, dist: minDist };
+                };
+
+                let nEnemy = findNearest(others, true);
+                let nBullet = findNearest(bullets, true);
+                let nBonus = findNearest(bonuses, false);
+                
+                this.targetBonus = nBonus.item;
+
+                // INPUTS CHANGED TO CARTESIAN (dX, dY) FOR MOVEMENT
+                let dX_E = 0, dY_E = 0, turAngE = 0;
+                if(nEnemy.item) {
+                    dX_E = (nEnemy.item.x - this.x) / canvas.width;  // Normalized X dist
+                    dY_E = (nEnemy.item.y - this.y) / canvas.height; // Normalized Y dist
+                    
+                    let absA = Math.atan2(nEnemy.item.y - this.y, nEnemy.item.x - this.x);
+                    turAngE = normalizeAngle(absA - this.turretAngle) / PI;
+                }
+
+                let angB = 0;
+                if(nBullet.item && nBullet.dist < 200) {
+                    let absA = Math.atan2(nBullet.item.y - this.y, nBullet.item.x - this.x);
+                    angB = normalizeAngle(absA - this.bodyAngle) / PI; // Approx threat angle
+                }
+
+                let distToCenter = dist(this.x, this.y, canvas.width/2, canvas.height/2);
+                let zoneDanger = 0;
+                if (distToCenter > currentZoneR - 50) zoneDanger = 1; 
+
+                // BONUS CARTESIAN INPUTS
+                let dX_B = 0, dY_B = 0;
+                if(nBonus.item) {
+                    dX_B = (nBonus.item.x - this.x) / canvas.width;
+                    dY_B = (nBonus.item.y - this.y) / canvas.height;
+                }
+
+                let hasShield = this.shieldTime > 0 ? 1 : 0;
+
+                return [dX_E, dY_E, turAngE, angB, zoneDanger, dX_B, dY_B, hasShield];
+            }
+
+            update(currentZoneR) {
+                if(!this.active) return;
+                this.timeAlive++;
+                if(this.cooldown > 0) this.cooldown--;
+                if(this.shieldTime > 0) this.shieldTime--;
+
+                let dCenter = dist(this.x, this.y, canvas.width/2, canvas.height/2);
+                if (dCenter > currentZoneR) {
+                    this.health -= CONFIG.zoneDamage;
+                    if(this.health <= 0) {
+                        this.active = false;
+                        this.zoneDeath = true;
+                    }
+                }
+            }
+
+            applyPhysics(vx, vy) {
+                let nextX = this.x + vx;
+                let nextY = this.y + vy;
+
+                // Screen bounds
+                if(nextX < 16) nextX = 16;
+                if(nextX > canvas.width - 16) nextX = canvas.width - 16;
+                if(nextY < 16) nextY = 16;
+                if(nextY > canvas.height - 16) nextY = canvas.height - 16;
+
+                this.x = nextX;
+                this.y = nextY;
+                
+                // Visual Rotation matches movement
+                if (Math.abs(vx) > 0.1 || Math.abs(vy) > 0.1) {
+                    this.bodyAngle = Math.atan2(vy, vx);
+                }
+            }
+
+            draw(ctx) {
+                if(!this.active) {
+                    ctx.fillStyle = '#333';
+                    ctx.beginPath(); ctx.arc(this.x, this.y, 10, 0, TWO_PI); ctx.fill();
+                    return;
+                }
+                
+                if(this.targetBonus && this.targetBonus.active && speedMult <= 1) {
+                    ctx.beginPath();
+                    ctx.strokeStyle = this.targetBonus.type === 0 ? 'rgba(0,255,0,0.2)' : 'rgba(0,100,255,0.2)';
+                    ctx.lineWidth = 1;
+                    ctx.moveTo(this.x, this.y);
+                    ctx.lineTo(this.targetBonus.x, this.targetBonus.y);
+                    ctx.stroke();
+                }
+
+                ctx.save();
+                ctx.translate(this.x, this.y);
+
+                if(this.shieldTime > 0) {
+                    ctx.beginPath();
+                    ctx.strokeStyle = `rgba(0, 136, 255, ${Math.random() * 0.5 + 0.3})`;
+                    ctx.lineWidth = 3;
+                    ctx.arc(0, 0, 24, 0, TWO_PI);
+                    ctx.stroke();
+                }
+                
+                ctx.save();
+                ctx.rotate(this.bodyAngle); // Visual Only
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = this.color;
+                ctx.fillStyle = '#000';
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 2;
+                ctx.fillRect(-15, -14, 30, 28);
+                ctx.strokeRect(-15, -14, 30, 28);
+                // Tracks
+                ctx.fillStyle = '#222'; 
+                ctx.fillRect(-14, -18, 28, 4);
+                ctx.fillRect(-14, 14, 28, 4);
+                ctx.restore();
+
+                ctx.save();
+                ctx.rotate(this.turretAngle);
+                ctx.fillStyle = this.color;
+                ctx.beginPath(); ctx.arc(0, 0, 9, 0, TWO_PI); ctx.fill();
+                ctx.fillRect(0, -3, 26, 6);
+                ctx.restore();
+
+                ctx.restore();
+
+                if(this.health < 100) {
+                    ctx.fillStyle = 'red';
+                    ctx.fillRect(this.x - 15, this.y - 30, 30, 3);
+                    ctx.fillStyle = '#0f0';
+                    ctx.fillRect(this.x - 15, this.y - 30, 30 * (this.health/100), 3);
+                }
+            }
+        }
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let tanks = [], bullets = [], bonuses = [], particles = [], floatTexts = [];
+        let speedMult = 1;
+        let generation = 1;
+        let timer = 0;
+        let zoneRadius = 1000;
+
+        function resize() {
+            const container = document.getElementById('game-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+        window.addEventListener('resize', resize);
+        
+        function initGen(parents = []) {
+            tanks = [];
+            bullets = [];
+            bonuses = [];
+            timer = 0;
+            zoneRadius = Math.max(canvas.width, canvas.height); 
+            
+            let r = Math.min(canvas.width, canvas.height) * 0.35;
+            for(let i=0; i<CONFIG.popSize; i++) {
+                let ang = (i / CONFIG.popSize) * TWO_PI;
+                let x = canvas.width/2 + Math.cos(ang) * r;
+                let y = canvas.height/2 + Math.sin(ang) * r;
+                
+                let brain = null;
+                if(parents.length > 0) {
+                    let p = parents[Math.floor(Math.random()*parents.length)];
+                    brain = p.brain.copy();
+                    brain.mutate();
+                }
+
+                let t = new Tank(i, x, y, brain);
+                t.bodyAngle = ang + PI; // Face inward initially
+                tanks.push(t);
+            }
+            updateUI();
+        }
+
+        function createParticles(x, y, color) {
+            if(speedMult > 1) return;
+            for(let i=0; i<6; i++) {
+                particles.push({x, y, vx:(Math.random()-0.5)*8, vy:(Math.random()-0.5)*8, life:15, color});
+            }
+        }
+
+        function createFloatText(x, y, text, color) {
+            if(speedMult > 1) return;
+            floatTexts.push({x, y, text, color, life: 40});
+        }
+
+        function spawnBonus() {
+            let angle = Math.random() * TWO_PI;
+            let r = Math.random() * (zoneRadius - 100); 
+            if(r<0) r=0;
+            let x = canvas.width/2 + Math.cos(angle) * r;
+            let y = canvas.height/2 + Math.sin(angle) * r;
+            let type = Math.random() > 0.7 ? 1 : 0; 
+            bonuses.push(new Bonus(x, y, type));
+        }
+
+        function loop() {
+            let cycles = speedMult;
+            if(speedMult === 0.5) cycles = (Date.now()%2===0) ? 0 : 1;
+            if(cycles > 1000) cycles = 1000;
+
+            for(let c=0; c<cycles; c++) {
+                timer++;
+                
+                // Zone Logic
+                let progress = timer / CONFIG.roundDuration;
+                let maxR = Math.hypot(canvas.width/2, canvas.height/2);
+                let minR = 120;
+                zoneRadius = maxR - (maxR - minR) * progress;
+                if(zoneRadius < minR) zoneRadius = minR;
+
+                if(Math.random() < CONFIG.bonusChance && bonuses.length < 3) spawnBonus();
+                
+                for(let t of tanks) {
+                    if(!t.active) continue;
+
+                    let inputs = t.getSensors(tanks, bullets, bonuses, zoneRadius);
+                    let outputs = t.brain.predict(inputs);
+
+                    // ARCADE CONTROL MAPPING
+                    let moveX = outputs[0];
+                    let moveY = outputs[1];
+                    let turretTurn = outputs[2];
+                    let shoot = outputs[3];
+                    
+                    // Berserk Override
+                    if(t.shieldTime > 0) {
+                         let nearest = null, minDist = Infinity;
+                        tanks.forEach(e => {
+                            if(e !== t && e.active) {
+                                let d = dist(t.x, t.y, e.x, e.y);
+                                if(d < minDist) { minDist = d; nearest = e; }
+                            }
+                        });
+                        if(nearest) {
+                            moveX = (nearest.x - t.x) / 100; // Force move X towards enemy
+                            moveY = (nearest.y - t.y) / 100; // Force move Y towards enemy
+                            // Clamp to max speed in physics logic later, or just normalization happens implicitly by neural net output range usually being -1 to 1, but here we override.
+                            // Let's maximize it to 1 or -1
+                            moveX = moveX > 0 ? 1 : -1;
+                            moveY = moveY > 0 ? 1 : -1;
+                        }
+                    }
+
+                    // Apply Arcade Velocity
+                    let vx = moveX * 4.0; // Max speed constant
+                    let vy = moveY * 4.0;
+
+                    t.turretAngle += turretTurn * 0.15;
+                    t.applyPhysics(vx, vy);
+                    t.update(zoneRadius); 
+
+                    if(shoot > 0.2 && t.cooldown <= 0) {
+                        bullets.push(new Bullet(
+                            t.x + Math.cos(t.turretAngle)*22, 
+                            t.y + Math.sin(t.turretAngle)*22, 
+                            t.turretAngle, 
+                            t.id
+                        ));
+                        t.cooldown = 20;
+                    }
+
+                    // Bonuses
+                    bonuses.forEach(b => {
+                        if(b.active && dist(t.x, t.y, b.x, b.y) < CONFIG.tankRadius + 15) {
+                            b.active = false;
+                            t.bonusesCollected++;
+                            if(b.type === 0) {
+                                t.health = Math.min(100, t.health + 50);
+                                createFloatText(t.x, t.y, "+50HP", "#0f0");
+                            } else {
+                                t.shieldTime = 240; 
+                                createFloatText(t.x, t.y, "SHIELD", "#08f");
+                            }
+                        }
+                    });
+                }
+                
+                // RAMMING
+                for(let i=0; i<tanks.length; i++) {
+                    for(let j=i+1; j<tanks.length; j++) {
+                        let t1 = tanks[i];
+                        let t2 = tanks[j];
+                        if(!t1.active || !t2.active) continue;
+
+                        let d = dist(t1.x, t1.y, t2.x, t2.y);
+                        if(d < CONFIG.tankRadius * 2) {
+                            let ang = Math.atan2(t2.y - t1.y, t2.x - t1.x);
+                            let overlap = (CONFIG.tankRadius * 2) - d;
+                            // Push apart
+                            t1.x -= Math.cos(ang) * overlap * 0.5; t1.y -= Math.sin(ang) * overlap * 0.5;
+                            t2.x += Math.cos(ang) * overlap * 0.5; t2.y += Math.sin(ang) * overlap * 0.5;
+                            
+                            // Simple Grind Damage + Shield Logic
+                            let baseDmg = 0.5; 
+                            let dmg1 = baseDmg, dmg2 = baseDmg;
+                            
+                            if(t1.shieldTime > 0 && t2.shieldTime <= 0) { dmg1 = 0; dmg2 = 5; } // Shield Ram = High Dmg
+                            else if (t2.shieldTime > 0 && t1.shieldTime <= 0) { dmg2 = 0; dmg1 = 5; }
+                            else if (t1.shieldTime > 0 && t2.shieldTime > 0) { dmg1 = 0; dmg2 = 0; }
+
+                            t1.health -= dmg1; t2.health -= dmg2;
+                            t1.damage += dmg2; t2.damage += dmg1;
+
+                            if(Math.random() > 0.5) createParticles((t1.x+t2.x)/2, (t1.y+t2.y)/2, '#fff');
+
+                            if(t1.health <= 0 && t1.active) { t1.active = false; t2.kills++; createParticles(t1.x, t1.y, '#ff0055'); }
+                            if(t2.health <= 0 && t2.active) { t2.active = false; t1.kills++; createParticles(t2.x, t2.y, '#ff0055'); }
+                        }
+                    }
+                }
+
+                for(let i=bonuses.length-1; i>=0; i--) if(!bonuses[i].active) bonuses.splice(i, 1);
+
+                for(let i=bullets.length-1; i>=0; i--) {
+                    let b = bullets[i];
+                    b.update();
+                    if(!b.active) { bullets.splice(i,1); continue; }
+
+                    for(let t of tanks) {
+                        if(t.active && t.id !== b.owner && dist(b.x, b.y, t.x, t.y) < CONFIG.tankRadius + 5) {
+                            b.active = false;
+                            if (t.shieldTime > 0) { createParticles(b.x, b.y, '#0088ff'); break; }
+                            t.health -= 15;
+                            createParticles(b.x, b.y, '#ffaa00');
+                            let att = tanks[b.owner];
+                            if(att) att.damage += 15;
+                            if(t.health <= 0) { t.active = false; if(att) att.kills++; createParticles(t.x, t.y, '#ff0055'); }
+                            break;
+                        }
+                    }
+                }
+
+                let alive = tanks.filter(t => t.active);
+                if(alive.length <= 1 || timer >= CONFIG.roundDuration) {
+                    nextGen();
+                    if(cycles > 1) break; 
+                }
+            }
+
+            ctx.fillStyle = '#111';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw Zone
+            ctx.beginPath();
+            ctx.strokeStyle = '#ff0055';
+            ctx.lineWidth = 4;
+            ctx.arc(canvas.width/2, canvas.height/2, zoneRadius, 0, TWO_PI);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(canvas.width/2, canvas.height/2, zoneRadius, 0, TWO_PI);
+            ctx.rect(canvas.width, 0, -canvas.width, canvas.height);
+            ctx.fillStyle = "rgba(255, 0, 85, 0.1)";
+            ctx.fill("evenodd");
+
+            bonuses.forEach(b => b.draw(ctx));
+
+            particles.forEach((p,i) => {
+                p.x += p.vx; p.y += p.vy; p.life--;
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x, p.y, 2, 2);
+                if(p.life <= 0) particles.splice(i,1);
+            });
+
+            ctx.font = "bold 12px Arial";
+            floatTexts.forEach((ft, i) => {
+                ft.y -= 0.5; ft.life--;
+                ctx.fillStyle = ft.color;
+                ctx.fillText(ft.text, ft.x, ft.y);
+                if(ft.life <= 0) floatTexts.splice(i, 1);
+            });
+
+            tanks.forEach(t => t.draw(ctx));
+            bullets.forEach(b => b.draw(ctx));
+
+            if(timer % 30 === 0) {
+                document.getElementById('timer').innerText = (timer/60).toFixed(0) + 's';
+                updateUI();
+            }
+
+            requestAnimationFrame(loop);
+        }
+
+        function nextGen() {
+            tanks.forEach(t => {
+                // Fitness heavily rewards bonus collection now
+                let bonusScore = t.bonusesCollected * 400;
+                let fitness = t.damage * 5 + (t.kills * 300) + bonusScore;
+                if (t.zoneDeath) fitness *= 0.1;
+                else {
+                    fitness += t.timeAlive * 0.5;
+                    if(t.active) fitness += 1000;
+                }
+                t.fitness = fitness;
+            });
+            
+            tanks.sort((a,b) => b.fitness - a.fitness);
+            if(tanks.length > 0) globalWins[tanks[0].id]++;
+
+            let parents = tanks.slice(0, 4);
+            generation++;
+            document.getElementById('gen-count').innerText = generation;
+            initGen(parents);
+        }
+
+        function downloadGenes() {
+            const data = tanks.map(t => ({
+                id: t.id,
+                wins: globalWins[t.id],
+                brain: t.brain
+            }));
+            const json = JSON.stringify(data, null, 2);
+            const blob = new Blob([json], {type: "application/json"});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `tank_evo_gen${generation}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function updateUI() {
+            document.getElementById('alive-count').innerText = tanks.filter(t=>t.active).length;
+            const tbody = document.getElementById('stats-body');
+            tbody.innerHTML = '';
+            
+            let sorted = [...tanks].sort((a,b) => (b.damage + b.kills*100) - (a.damage + a.kills*100));
+            sorted.forEach(t => {
+                let row = `<tr>
+                    <td><span class="tank-dot" style="background:${t.color}"></span>${t.id}</td>
+                    <td>${Math.floor(t.damage)}</td>
+                    <td>${t.kills}</td>
+                    <td>${t.bonusesCollected}</td>
+                    <td class="win-badge">${globalWins[t.id]}</td>
+                </tr>`;
+                if(!t.active) row = row.replace('<tr>', '<tr style="opacity:0.4">');
+                tbody.innerHTML += row;
+            });
+        }
+
+        function setSpeed(s) {
+            speedMult = s;
+            document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+            if(s === 0.5) document.querySelector('button:nth-child(1)').classList.add('active');
+            if(s === 1) document.getElementById('btn-1x').classList.add('active');
+            if(s === 10) document.querySelector('button:nth-child(3)').classList.add('active');
+            if(s === 50) document.querySelector('button:nth-child(4)').classList.add('active');
+            if(s === 1000) document.querySelector('button:nth-child(5)').classList.add('active');
+        }
+
+        resize();
+        initGen();
+        loop();
+
+    </script>
+</body>
+</html>

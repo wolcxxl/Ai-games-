@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Snake AI - Fixed & Fast</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@500;900&display=swap');
+
+        /* Сброс и база */
+        * { box-sizing: border-box; touch-action: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+        body {
+            background-color: #121212;
+            font-family: 'Roboto', sans-serif;
+            margin: 0; padding: 0;
+            height: 100vh; width: 100vw;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: flex-start; /* Изменено для мобилок */
+            color: white;
+            overflow: hidden;
+        }
+
+        /* Главный контейнер */
+        #game-wrapper {
+            width: 100%; max-width: 500px;
+            height: 100%;
+            display: flex; flex-direction: column;
+            padding: 10px;
+        }
+
+        /* Шапка */
+        #header {
+            display: flex; justify-content: space-between; align-items: center;
+            background: #1f1f1f; padding: 15px; border-radius: 12px;
+            margin-bottom: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .score { font-size: 1.5rem; font-weight: 900; display: flex; align-items: center; gap: 10px; }
+        .badge { background: #333; padding: 5px 10px; border-radius: 6px; font-size: 0.8rem; font-family: monospace; }
+
+        /* Игровое поле */
+        #board-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 1;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        canvas { display: block; width: 100%; height: 100%; }
+
+        /* Панель управления (низ) */
+        #controls-panel {
+            margin-top: 10px;
+            background: #1f1f1f;
+            padding: 10px;
+            border-radius: 12px;
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .btn {
+            background: #333; border: none; color: white;
+            padding: 12px; border-radius: 8px; font-weight: bold;
+            cursor: pointer; transition: 0.1s; text-align: center;
+        }
+        .btn:active { transform: scale(0.95); background: #555; }
+        .btn.active { background: #00E676; color: #003300; }
+        
+        .speed-controls { display: flex; gap: 5px; justify-content: center; }
+        .spd-btn { padding: 10px 15px; background: #333; border-radius: 6px; border: none; color: #aaa; font-weight: bold; }
+        .spd-btn.active { background: #FFD700; color: black; }
+
+        /* Экранные кнопки (D-Pad) */
+        #dpad {
+            margin-top: auto; /* Прижать к низу */
+            margin-bottom: 10px;
+            display: grid; 
+            grid-template-columns: repeat(3, 1fr); 
+            grid-template-rows: repeat(2, 60px);
+            gap: 8px;
+            width: 100%;
+            max-width: 300px;
+            align-self: center;
+        }
+        .d-btn {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 24px;
+        }
+        .d-btn:active { background: rgba(255,255,255,0.3); }
+        /* Раскладка кнопок */
+        .d-up { grid-column: 2; grid-row: 1; }
+        .d-left { grid-column: 1; grid-row: 2; }
+        .d-down { grid-column: 2; grid-row: 2; }
+        .d-right { grid-column: 3; grid-row: 2; }
+
+        /* Оверлеи */
+        .overlay {
+            position: absolute; inset: 0;
+            background: rgba(0,0,0,0.85);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 50;
+        }
+        .hidden { display: none !important; }
+
+        .play-btn-big {
+            width: 80px; height: 80px; background: #00E676;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 30px rgba(0,230,118,0.5); cursor: pointer;
+        }
+
+    </style>
+</head>
+<body>
+
+<div id="game-wrapper">
+    <!-- Шапка -->
+    <div id="header">
+        <div class="score">🍎 <span id="score-val">0</span></div>
+        <div class="badge" id="ai-status">MANUAL</div>
+    </div>
+
+    <!-- Поле -->
+    <div id="board-container">
+        <canvas id="gameCanvas"></canvas>
+        
+        <!-- Старт -->
+        <div id="start-screen" class="overlay">
+            <div class="play-btn-big" id="btn-start">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+            </div>
+            <p style="color:#888; margin-top:15px;">Нажми Play</p>
+        </div>
+
+        <!-- Конец -->
+        <div id="game-over-screen" class="overlay hidden">
+            <h1 style="color:#ff5252; margin:0 0 10px;">GAME OVER</h1>
+            <p style="font-size:1.2rem;">Счет: <span id="final-score">0</span></p>
+            <button class="btn" id="btn-restart" style="background:#2196F3; margin-top:20px; width:150px;">Заново</button>
+        </div>
+    </div>
+
+    <!-- Настройки -->
+    <div id="controls-panel">
+        <button class="btn" id="btn-toggle-ai">BOT</button>
+        <div class="speed-controls">
+            <button class="spd-btn active" data-spd="1">1x</button>
+            <button class="spd-btn" data-spd="20">20x</button>
+            <button class="spd-btn" data-spd="max">MAX</button>
+        </div>
+        <div style="text-align:center; font-size:0.8rem; color:#555;">SPEED</div>
+    </div>
+
+    <!-- Кнопки управления -->
+    <div id="dpad">
+        <div class="d-btn d-up" data-key="ArrowUp">▲</div>
+        <div class="d-btn d-left" data-key="ArrowLeft">◀</div>
+        <div class="d-btn d-down" data-key="ArrowDown">▼</div>
+        <div class="d-btn d-right" data-key="ArrowRight">▶</div>
+    </div>
+</div>
+
+<script>
+    // --- НАСТРОЙКИ ---
+    const TILE_COUNT = 15; // 15x15 (оптимально для телефона)
+    const COLOR_BG_1 = '#1a1a1a';
+    const COLOR_BG_2 = '#222';
+    const COLOR_SNAKE = '#00E676';
+    const COLOR_FOOD = '#ff5252';
+
+    // --- ПЕРЕМЕННЫЕ ---
+    let canvas, ctx;
+    let width, height, tileSize;
+    
+    let snake = [];
+    let food = {x:0, y:0};
+    let dir = {x:1, y:0};
+    let nextDir = {x:1, y:0};
+    let score = 0;
+    
+    let isRunning = false;
+    let isAI = false;
+    let speedLevel = 1; // 1, 20, 100 (max)
+    let loopId = null;
+
+    // --- ИНИЦИАЛИЗАЦИЯ ---
+    window.onload = () => {
+        canvas = document.getElementById('gameCanvas');
+        ctx = canvas.getContext('2d');
+        
+        // Листенеры кнопок
+        document.getElementById('btn-start').onclick = startGame;
+        document.getElementById('btn-restart').onclick = startGame;
+        document.getElementById('btn-toggle-ai').onclick = toggleAI;
+        
+        // Скорость
+        document.querySelectorAll('.spd-btn').forEach(btn => {
+            btn.onclick = (e) => {
+                document.querySelectorAll('.spd-btn').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                const val = e.target.getAttribute('data-spd');
+                speedLevel = val === 'max' ? 100 : parseInt(val);
+            };
+        });
+
+        // D-PAD и Клавиатура
+        setupControls();
+        
+        // Ресайз
+        window.onresize = resize;
+        resize();
+    };
+
+    function resize() {
+        const container = document.getElementById('board-container');
+        width = container.clientWidth;
+        height = container.clientHeight; // Должен быть квадрат
+        canvas.width = width;
+        canvas.height = height;
+        tileSize = width / TILE_COUNT;
+        if (!isRunning) draw();
+    }
+
+    function setupControls() {
+        // Клавиатура
+        document.addEventListener('keydown', e => {
+            if (isAI && isRunning) return;
+            handleInput(e.key);
+        });
+
+        // Экранные кнопки (Touch + Click)
+        document.querySelectorAll('.d-btn').forEach(btn => {
+            const handler = (e) => {
+                e.preventDefault(); // Чтобы не было дабл-клика
+                if (isAI && isRunning) return;
+                handleInput(btn.getAttribute('data-key'));
+            };
+            btn.addEventListener('touchstart', handler);
+            btn.addEventListener('mousedown', handler);
+        });
+
+        // Свайпы
+        let tx = 0, ty = 0;
+        const board = document.getElementById('board-container');
+        board.addEventListener('touchstart', e => {
+            tx = e.changedTouches[0].screenX;
+            ty = e.changedTouches[0].screenY;
+            e.preventDefault();
+        }, {passive: false});
+
+        board.addEventListener('touchend', e => {
+            if (isAI && isRunning) return;
+            const dx = e.changedTouches[0].screenX - tx;
+            const dy = e.changedTouches[0].screenY - ty;
+            if (Math.abs(dx) > Math.abs(dy)) {
+                if (Math.abs(dx) > 30) handleInput(dx > 0 ? 'ArrowRight' : 'ArrowLeft');
+            } else {
+                if (Math.abs(dy) > 30) handleInput(dy > 0 ? 'ArrowDown' : 'ArrowUp');
+            }
+        });
+    }
+
+    function handleInput(key) {
+        switch(key) {
+            case 'ArrowUp': case 'w': if(dir.y !== 1) nextDir = {x:0, y:-1}; break;
+            case 'ArrowDown': case 's': if(dir.y !== -1) nextDir = {x:0, y:1}; break;
+            case 'ArrowLeft': case 'a': if(dir.x !== 1) nextDir = {x:-1, y:0}; break;
+            case 'ArrowRight': case 'd': if(dir.x !== -1) nextDir = {x:1, y:0}; break;
+        }
+    }
+
+    // --- ИГРОВОЙ ЦИКЛ ---
+    function startGame() {
+        document.getElementById('start-screen').classList.add('hidden');
+        document.getElementById('game-over-screen').classList.add('hidden');
+        
+        snake = [{x:5, y:8}, {x:4, y:8}, {x:3, y:8}];
+        dir = {x:1, y:0};
+        nextDir = {x:1, y:0};
+        score = 0;
+        updateUI();
+        placeFood();
+        
+        isRunning = true;
+        if (loopId) clearTimeout(loopId);
+        gameLoop();
+    }
+
+    function gameLoop() {
+        if (!isRunning) return;
+
+        // Если бот включен и скорость MAX, делаем несколько шагов за кадр
+        // НО с ограничением, чтобы не повесить браузер (макс 10 шагов за раз)
+        const steps = (isAI && speedLevel > 20) ? 5 : 1;
+        const delay = (isAI && speedLevel > 20) ? 10 : (100 / (speedLevel === 1 ? 1 : 2));
+
+        for (let i = 0; i < steps; i++) {
+            update();
+            if (!isRunning) break;
+        }
+        
+        draw();
+        
+        // Используем setTimeout для контроля скорости
+        loopId = setTimeout(() => requestAnimationFrame(gameLoop), delay);
+    }
+
+    function update() {
+        // AI Логика
+        if (isAI) runAI();
+        else dir = nextDir;
+
+        const head = snake[0];
+        const nx = head.x + dir.x;
+        const ny = head.y + dir.y;
+
+        // Столкновение со стеной
+        if (nx < 0 || nx >= TILE_COUNT || ny < 0 || ny >= TILE_COUNT) {
+            return gameOver();
+        }
+
+        // Столкновение с собой
+        // Хвост безопасен, если мы не едим (он уползет)
+        let hitSelf = false;
+        for (let i = 0; i < snake.length - 1; i++) { // -1 потому что хвост уходит
+            if (nx === snake[i].x && ny === snake[i].y) {
+                hitSelf = true;
+                break;
+            }
+        }
+        if (hitSelf) return gameOver();
+
+        // Движение
+        const newHead = {x:nx, y:ny};
+        snake.unshift(newHead);
+
+        // Еда
+        if (nx === food.x && ny === food.y) {
+            score++;
+            updateUI();
+            placeFood();
+        } else {
+            snake.pop();
+        }
+    }
+
+    function gameOver() {
+        isRunning = false;
+        document.getElementById('final-score').innerText = score;
+        document.getElementById('game-over-screen').classList.remove('hidden');
+    }
+
+    function placeFood() {
+        let attempts = 0;
+        while (attempts < 500) {
+            const x = Math.floor(Math.random() * TILE_COUNT);
+            const y = Math.floor(Math.random() * TILE_COUNT);
+            // Проверка, не на змее ли
+            if (!snake.some(s => s.x === x && s.y === y)) {
+                food = {x, y};
+                return;
+            }
+            attempts++;
+        }
+    }
+
+    // --- УМНЫЙ БОТ (Survival Logic Optimized) ---
+    function runAI() {
+        const head = snake[0];
+        
+        // 1. Ищем путь к еде (BFS)
+        const pathToFood = bfs(head, food, snake);
+        
+        let bestMove = null;
+
+        if (pathToFood.length > 0) {
+            // 2. SAFETY CHECK: Если съедим, сможем ли найти хвост?
+            // Симуляция простая: предполагаем, что голова станет на место первого шага, а хвост останется (т.к. съели = выросли)
+            // Это грубая, но быстрая проверка
+            const nextStep = pathToFood[0];
+            const virtualSnake = [nextStep, ...snake]; 
+            // При поедании хвост не удаляется, длина растет. 
+            // Проверяем путь от новой головы к ТЕКУЩЕМУ хвосту (он станет концом)
+            const virtualTail = snake[snake.length-1]; 
+            
+            if (canReach(nextStep, virtualTail, virtualSnake)) {
+                bestMove = nextStep;
+            }
+        }
+
+        // 3. Если к еде опасно или нет пути -> Идем к хвосту (тянем время)
+        if (!bestMove) {
+            const tail = snake[snake.length-1];
+            // Пытаемся найти путь к хвосту. Хвост освободится, поэтому он валидная цель.
+            // Нужно выбрать соседа, от которого путь к хвосту самый длинный (или просто есть).
+            const neighbors = getNeighbors(head).filter(n => isValid(n, snake));
+            
+            for (let n of neighbors) {
+                // Если мы пойдем в n, змея сдвинется. Хвост будет на месте предпоследнего сегмента.
+                // Но для простоты: просто проверяем доступность хвоста
+                if (canReach(n, tail, snake)) {
+                    bestMove = n;
+                    break; // Берем первый попавшийся безопасный
+                }
+            }
+        }
+
+        // 4. Если совсем всё плохо - любой валидный ход
+        if (!bestMove) {
+            const valid = getNeighbors(head).filter(n => isValid(n, snake));
+            if (valid.length > 0) bestMove = valid[0];
+        }
+
+        if (bestMove) {
+            dir = {x: bestMove.x - head.x, y: bestMove.y - head.y};
+        }
+    }
+
+    // Поиск пути (возвращает массив шагов)
+    function bfs(start, target, body) {
+        const q = [[start]];
+        const visited = new Set([start.x+','+start.y]);
+        const blocks = new Set(body.map(p => p.x+','+p.y));
+        
+        while (q.length) {
+            const path = q.shift();
+            const curr = path[path.length-1];
+            if (curr.x === target.x && curr.y === target.y) return path.slice(1);
+            
+            getNeighbors(curr).forEach(n => {
+                const k = n.x+','+n.y;
+                if (!visited.has(k) && !blocks.has(k)) {
+                    visited.add(k);
+                    q.push([...path, n]);
+                }
+            });
+        }
+        return [];
+    }
+
+    // Проверка достижимости (возвращает true/false) - Быстрее чем возвращать путь
+    function canReach(start, target, body) {
+        // Оптимизация: не ищем полный путь, просто есть ли он
+        // Используем BFS, но без хранения путей
+        const q = [start];
+        const visited = new Set([start.x+','+start.y]);
+        const blocks = new Set(body.map(p => p.x+','+p.y));
+        // Хвост всегда является допустимой клеткой для движения (он уйдет), если мы не едим.
+        // Но в проверке безопасности мы часто проверяем статику. 
+        // Разрешим хвост как цель.
+        blocks.delete(target.x+','+target.y);
+
+        while (q.length) {
+            const curr = q.shift();
+            if (curr.x === target.x && curr.y === target.y) return true;
+            
+            getNeighbors(curr).forEach(n => {
+                const k = n.x+','+n.y;
+                if (!visited.has(k) && !blocks.has(k)) {
+                    visited.add(k);
+                    q.push(n);
+                }
+            });
+        }
+        return false;
+    }
+
+    function getNeighbors(p) {
+        return [
+            {x:p.x, y:p.y-1}, {x:p.x, y:p.y+1},
+            {x:p.x-1, y:p.y}, {x:p.x+1, y:p.y}
+        ].filter(n => n.x>=0 && n.x<TILE_COUNT && n.y>=0 && n.y<TILE_COUNT);
+    }
+
+    function isValid(p, body) {
+        // Клетка валидна, если не стена (уже проверено в getNeighbors) и не тело
+        // Хвост считаем свободным
+        const tail = body[body.length-1];
+        if (p.x === tail.x && p.y === tail.y) return true;
+        return !body.some(b => b.x === p.x && b.y === p.y);
+    }
+
+    // --- ОТРИСОВКА ---
+    function draw() {
+        // Фон
+        ctx.fillStyle = COLOR_BG_1;
+        ctx.fillRect(0, 0, width, height);
+        
+        // Шахматка
+        ctx.fillStyle = COLOR_BG_2;
+        for(let x=0; x<TILE_COUNT; x++) {
+            for(let y=0; y<TILE_COUNT; y++) {
+                if ((x+y)%2===0) ctx.fillRect(x*tileSize, y*tileSize, tileSize, tileSize);
+            }
+        }
+
+        // Еда
+        const fx = food.x * tileSize + tileSize/2;
+        const fy = food.y * tileSize + tileSize/2;
+        ctx.fillStyle = COLOR_FOOD;
+        ctx.beginPath(); ctx.arc(fx, fy, tileSize*0.35, 0, Math.PI*2); ctx.fill();
+
+        // Змея
+        snake.forEach((s, i) => {
+            const sx = s.x * tileSize + tileSize/2;
+            const sy = s.y * tileSize + tileSize/2;
+            ctx.fillStyle = (i===0) ? '#fff' : COLOR_SNAKE;
+            ctx.beginPath(); ctx.arc(sx, sy, tileSize*0.4, 0, Math.PI*2); ctx.fill();
+        });
+    }
+
+    function updateUI() {
+        document.getElementById('score-val').innerText = score;
+    }
+
+    function toggleAI() {
+        isAI = !isAI;
+        const btn = document.getElementById('btn-toggle-ai');
+        const badge = document.getElementById('ai-status');
+        if (isAI) {
+            btn.classList.add('active');
+            badge.innerText = "SURVIVAL AI";
+            badge.style.color = "#00E676";
+        } else {
+            btn.classList.remove('active');
+            badge.innerText = "MANUAL";
+            badge.style.color = "#888";
+        }
+    }
+
+</script>
+</body>
+</html>

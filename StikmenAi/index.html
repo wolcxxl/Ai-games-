@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Stickman v17: Stable Colosseum</title>
+    <style>
+        body { margin: 0; padding: 0; background: #080808; overflow: hidden; font-family: 'Consolas', monospace; user-select: none; }
+        
+        #ui-panel {
+            position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+            width: 95%; max-width: 500px;
+            background: rgba(20, 20, 30, 0.95);
+            border: 1px solid #444; border-radius: 12px; padding: 10px;
+            display: flex; flex-direction: column; gap: 8px;
+            box-shadow: 0 0 30px #000; z-index: 100;
+        }
+        .top-info { display: flex; justify-content: space-between; font-size: 11px; color: #888; border-bottom: 1px solid #333; padding-bottom: 4px; }
+        
+        .stats-wrap { max-height: 120px; overflow-y: auto; scrollbar-width: thin; }
+        .stats-grid { display: grid; grid-template-columns: 0.5fr 1.5fr 1fr 1fr; gap: 2px; font-size: 11px; }
+        
+        .s-row { display: contents; }
+        .s-cell { padding: 3px 5px; white-space: nowrap; }
+        .s-head { color: #666; font-weight: bold; position: sticky; top:0; background: rgba(20,20,30,0.95); }
+        .num { text-align: right; font-family: monospace; color: #ddd; }
+        
+        .cl-sw { color: #ff5555; } .cl-ax { color: #55ff55; } .cl-st { color: #5555ff; } .cl-nu { color: #ffff55; }
+        .leader { color: #ffd700; font-weight: bold; }
+
+        .controls { display: flex; gap: 4px; margin-top: 5px; border-top: 1px solid #333; padding-top: 6px; }
+        button { flex: 1; background: #222; border: 1px solid #444; color: #888; border-radius: 4px; padding: 8px 0; cursor: pointer; font-size: 11px; }
+        button.active { background: #00d2ff; color: #000; border-color: #fff; font-weight: bold; }
+        button.super { color: #d0f; border-color: #505; } button.super.active { background: #d0f; color: #fff; box-shadow: 0 0 10px #d0f; border-color: #fff; }
+        
+        #time-bar { position: absolute; top: 0; left: 0; height: 3px; background: #00d2ff; width: 100%; z-index: 50; }
+        canvas { position: absolute; top: 0; left: 0; }
+        #err-log { position:absolute; top:0; left:0; color:red; font-size:12px; background:rgba(0,0,0,0.9); padding:10px; display:none; z-index:999;}
+    </style>
+</head>
+<body>
+
+<div id="err-log"></div>
+<div id="time-bar"></div>
+
+<div id="ui-panel">
+    <div class="top-info">
+        <span>GEN: <b id="gen-val" style="color:#fff">0</b></span>
+        <span>TIME: <b id="timer-val" style="color:#fff">30.0</b>s</span>
+        <span>ALIVE: <b id="alive-val" style="color:#fff">0</b></span>
+    </div>
+    
+    <div class="stats-wrap">
+        <div class="stats-grid">
+            <div class="s-row"><div class="s-cell s-head">#</div><div class="s-cell s-head">WEAPON</div><div class="s-cell s-head num">SCORE</div><div class="s-cell s-head num">HP</div></div>
+            <div id="stats-body" style="display:contents"></div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button onclick="window.changeSpeed(1)" id="b1" class="active">x1</button>
+        <button onclick="window.changeSpeed(20)" id="b20">x20</button>
+        <button onclick="window.changeSpeed(100)" id="b100">x100</button>
+        <button onclick="window.changeSpeed(1000)" id="b1000" class="super">x1K</button>
+    </div>
+</div>
+
+<canvas id="cvs"></canvas>
+
+<script>
+(function() { // Wrap in IIFE to prevent global scope pollution
+    // 1. GLOBAL VARIABLES (Local to this scope)
+    let gameSpeed = 1;
+    let renderEnabled = true;
+    var cvs, ctx;
+    var bots = [], parts = [], floats = [];
+    var gen = 0, timer = 0;
+    var championBrain = null;
+    var championScore = -Infinity;
+
+    // Config
+    const W=3500, H=3500;
+    const SAFE=500;
+    const CX=W/2, CY=H/2;
+    const VIEW_ANGLE=0.22, FRICTION=0.92, ACCEL=0.8, ROUND_TIME=1800;
+    const BOT_COUNT = 10;
+    const ROOM_DIST = 1100;
+    const RS = 150; 
+    const WT = 20;
+
+    // Camera
+    var CAM = {x:CX, y:CY, z:0.3};
+
+    // Weapons
+    const WEPS=[
+        {n:"SWORD",c:"#ff5555",cl:"cl-sw",r:70,d:15,cd:40,s:0.2},
+        {n:"AXE",  c:"#55ff55",cl:"cl-ax",r:60,d:35,cd:70,s:0.1},
+        {n:"STAFF",c:"#5555ff",cl:"cl-st",r:120,d:8,cd:30,s:0.3},
+        {n:"NUNCH",c:"#ffff55",cl:"cl-nu",r:50,d:5,cd:15,s:0.4}
+    ];
+
+    // Walls
+    const WALLS=[]; 
+    function addW(x,y,w,h){WALLS.push({x,y,w,h,r:x+w,b:y+h});}
+
+    // Init Map
+    for(let i=0; i<BOT_COUNT; i++) {
+        let ang = (Math.PI * 2 / BOT_COUNT) * i;
+        let rx = CX + Math.cos(ang) * ROOM_DIST;
+        let ry = CY + Math.sin(ang) * ROOM_DIST;
+        addW(rx-RS, ry-RS, RS*2, WT); // Top
+        addW(rx-RS, ry+RS, RS*2, WT); // Bot
+        addW(rx-RS, ry-RS, WT, RS*2); // Left
+        addW(rx+RS, ry-RS, WT, RS*2); // Right
+    }
+    addW(CX-50, CY-50, 100, 100); // Center
+
+    // 2. GLOBAL FUNCTIONS (Attached to window for HTML access)
+    window.changeSpeed = function(s) {
+        gameSpeed = s;
+        renderEnabled = s < 50;
+        ['1','20','100','1000'].forEach(id => {
+            let btn = document.getElementById('b'+id);
+            if(btn) btn.className = (id==s || (id=='1000' && s==1000)) ? (id=='1000'?'super active':'active') : (id=='1000'?'super':'');
+        });
+    };
+
+    function part(x,y,c,n){for(let i=0;i<n;i++)parts.push({x,y,c,vx:(Math.random()-.5)*10,vy:(Math.random()-.5)*10,l:1});}
+    function ftxt(x,y,t,c){floats.push({x,y,t,c,l:1});}
+    
+    function err(msg) {
+        const el = document.getElementById('err-log');
+        if(el) { el.style.display = 'block'; el.innerHTML += msg + "<br>"; }
+        console.error(msg);
+    }
+    window.onerror = function(m,u,l) { err(`Error line ${l}: ${m}`); return false; };
+
+    // 3. CLASSES
+    class Brain {
+        constructor(){
+            this.in=12; this.hid=20; this.out=3;
+            this.w1=new Float32Array(this.in*this.hid); this.w2=new Float32Array(this.hid*this.out);
+            this.pIn=new Float32Array(this.in);
+            this.rand();
+        }
+        rand(){for(let i=0;i<this.w1.length;i++)this.w1[i]=Math.random()*2-1; for(let i=0;i<this.w2.length;i++)this.w2[i]=Math.random()*2-1;}
+        clone(){let b=new Brain(); b.w1.set(this.w1); b.w2.set(this.w2); return b;}
+        mutate(r){
+            for(let i=0;i<this.w1.length;i++)if(Math.random()<r)this.w1[i]+=(Math.random()*2-1)*0.5;
+            for(let i=0;i<this.w2.length;i++)if(Math.random()<r)this.w2[i]+=(Math.random()*2-1)*0.5;
+        }
+        think(raw){
+            for(let i=0;i<this.in;i++)this.pIn[i]=this.pIn[i]*0.7+raw[i]*0.3;
+            let h=new Float32Array(this.hid);
+            for(let i=0;i<this.hid;i++){let s=0;for(let j=0;j<this.in;j++)s+=this.pIn[j]*this.w1[j*this.hid+i];h[i]=Math.tanh(s);}
+            let o=new Float32Array(this.out);
+            for(let i=0;i<this.out;i++){let s=0;for(let j=0;j<this.hid;j++)s+=h[j]*this.w2[j*this.out+i];o[i]=Math.tanh(s);}
+            return o;
+        }
+    }
+
+    class Bot {
+        constructor(id,x,y, brain){
+            this.id=id; this.x=x; this.y=y; this.sx=x; this.sy=y;
+            this.w=WEPS[Math.floor(Math.random()*WEPS.length)]; 
+            this.brain=brain ? brain.clone() : new Brain();
+            this.hp=100; this.score=0; this.dead=false;
+            this.vx=0; this.vy=0; this.a=Math.random()*6.28;
+            this.atC=0; this.atOn=false; this.atP=0;
+            this.jpC=0; this.jp=false; this.jpT=0;
+            this.saved=false; this.lifeTime=0; this.tv=0;
+        }
+        update(all){
+            if(this.dead)return;
+            if(isNaN(this.x)||isNaN(this.y)){this.x=this.sx;this.y=this.sy;this.vx=0;this.vy=0;}
+            this.lifeTime++;
+            if(this.lifeTime%60===0) this.score+=5;
+
+            // Physics
+            if(!this.jp){
+                for(let b of all) if(b!==this && !b.dead && !b.jp){
+                    let dx=this.x-b.x, dy=this.y-b.y, d=Math.sqrt(dx*dx+dy*dy);
+                    if(d<0.1)d=0.1;
+                    if(d<30){
+                        let p=(30-d)*0.5, nx=dx/d, ny=dy/d;
+                        this.x+=nx*p; this.y+=ny*p; b.x-=nx*p; b.y-=ny*p;
+                        this.vx*=0.9; this.vy*=0.9;
+                    }
+                }
+            }
+            
+            // Pit
+            let isOut = (this.x<SAFE || this.x>W-SAFE || this.y<SAFE || this.y>H-SAFE);
+            if(isOut){
+                if(!this.saved){
+                    this.saved=true; this.score-=5000;
+                    let dx=CX-this.x, dy=CY-this.y, d=Math.sqrt(dx*dx+dy*dy);
+                    this.vx=(dx/d)*35; this.vy=(dy/d)*35;
+                    this.x+=this.vx; this.y+=this.vy;
+                    if(renderEnabled) ftxt(this.x,this.y-50,"SAVED!","#0ff");
+                } else {
+                    this.kill(-20000,"PIT -20K"); return;
+                }
+            }
+
+            // Sensors
+            let dL=(this.x-SAFE)/W, dR=((W-SAFE)-this.x)/W, dT=(this.y-SAFE)/H, dB=((H-SAFE)-this.y)/H;
+            dL=Math.max(0,Math.min(1,dL)); dR=Math.max(0,Math.min(1,dR));
+            dT=Math.max(0,Math.min(1,dT)); dB=Math.max(0,Math.min(1,dB));
+
+            let t=null, mD=9999, vis=0;
+            for(let b of all) if(b!==this&&!b.dead){
+                let dx=b.x-this.x, dy=b.y-this.y, d=Math.sqrt(dx*dx+dy*dy);
+                let an=Math.atan2(dy,dx), df=Math.abs(an-this.a); while(df>Math.PI)df=Math.abs(df-2*Math.PI);
+                if(d<800&&df<VIEW_ANGLE){vis=1; this.tv++; if(this.tv%60==0)this.score+=0.1;}
+                if(d<mD){mD=d;t=b;}
+            }
+            if(vis===0)this.tv=0;
+
+            let inp=new Float32Array(12);
+            inp[0]=dL; inp[1]=dR; inp[2]=dT; inp[3]=dB;
+            if(t){inp[4]=(t.x-this.x)/1000;inp[5]=(t.y-this.y)/1000;inp[6]=mD/1000;inp[7]=t.hp/100;}
+            inp[8]=this.hp/100; inp[9]=this.atC>0?1:0; inp[10]=vis; inp[11]=this.saved?1:0;
+
+            let res=this.brain.think(inp);
+            this.vx+=res[0]*ACCEL; this.vy+=res[1]*ACCEL; this.vx*=FRICTION; this.vy*=FRICTION;
+
+            // Auto Jump (1s = 60 frames)
+            if(this.jpC>0)this.jpC--;
+            if(this.jp){this.jpT--;if(this.jpT<=0)this.jp=false;}
+            
+            let nx=this.x+this.vx, ny=this.y+this.vy;
+            if(!this.jp) {
+                for(let w of WALLS) {
+                    if(nx+15>w.x&&nx-15<w.r&&ny+15>w.y&&ny-15<w.b) {
+                        if(this.jpC<=0) {
+                            let jD=180, ang=Math.atan2(this.vy,this.vx);
+                            let lx=this.x+Math.cos(ang)*jD, ly=this.y+Math.sin(ang)*jD;
+                            if(lx>SAFE && lx<W-SAFE && ly>SAFE && ly<H-SAFE) {
+                                this.jp=true; this.jpT=30; this.jpC=60; 
+                                if(renderEnabled) ftxt(this.x,this.y,"JUMP","#fff");
+                            }
+                        } else {
+                            let l=Math.abs(nx+15-w.x), r=Math.abs(w.r-(nx-15)), t=Math.abs(ny+15-w.y), b=Math.abs(w.b-(ny-15)), m=Math.min(l,r,t,b);
+                            if(m==l){nx=w.x-16;this.vx=0;}else if(m==r){nx=w.r+16;this.vx=0;}else if(m==t){ny=w.y-16;this.vy=0;}else{ny=w.b+16;this.vy=0;}
+                        }
+                    }
+                }
+            }
+            this.x=nx; this.y=ny;
+
+            if(Math.hypot(this.vx,this.vy)>0.5){let ta=Math.atan2(this.vy,this.vx),d=ta-this.a;while(d<-3.14)d+=6.28;while(d>3.14)d-=6.28;this.a+=d*0.15;}
+
+            if(this.atC>0)this.atC--;
+            if(res[2]>0.5&&this.atC<=0&&!this.jp){this.atOn=true;this.atC=this.w.cd;this.atP=0;}
+            if(this.atOn){
+                this.atP+=this.w.s;
+                if(this.atP>=0.5&&this.atP-this.w.s<0.5){
+                    for(let b of all) if(b!==this&&!b.dead&&!b.jp){
+                        let dx=b.x-this.x, dy=b.y-this.y, d=Math.sqrt(dx*dx+dy*dy);
+                        let an=Math.atan2(dy,dx), ad=Math.abs(an-this.a); while(ad>Math.PI)ad=Math.abs(ad-2*Math.PI);
+                        if(d<this.w.r+20&&ad<1.0){
+                            b.hp-=this.w.d; this.score+=1000;
+                            b.vx+=Math.cos(this.a)*25; b.vy+=Math.sin(this.a)*25;
+                            if(renderEnabled)part(b.x,b.y,"#fff",5);
+                            if(b.hp<=0){
+                                let inCenter = Math.sqrt((b.x-CX)**2 + (b.y-CY)**2) < 300;
+                                let bonus = inCenter?15000:10000; let m = inCenter?"GLAD +15K":"KILL +10K";
+                                b.kill(inCenter?-15000:-5000, inCenter?"DIED IN CENTER":"");
+                                this.score+=bonus; if(renderEnabled)ftxt(this.x,this.y-60,m,"#ff0");
+                            }
+                        }
+                    }
+                }
+                if(this.atP>=1)this.atOn=false;
+            }
+        }
+        kill(sc,m){this.hp=0;this.dead=true;this.score+=sc;if(renderEnabled){part(this.x,this.y,"#f00",20);if(m)ftxt(this.x,this.y,m,"#f00");}}
+    }
+
+    // 4. MAIN LOOPS
+    function init(){
+        if(bots.length > 0) {
+            bots.sort((a,b) => b.score - a.score);
+            let winner = bots[0];
+            if (winner.score > championScore) { championScore = winner.score; championBrain = winner.brain.clone(); }
+            if (championScore < -10000) { championBrain = null; championScore = -Infinity; }
+        }
+        bots=[];
+        for(let i=0; i<BOT_COUNT; i++) {
+            let ang = (Math.PI * 2 / BOT_COUNT) * i;
+            let rx = CX + Math.cos(ang) * ROOM_DIST;
+            let ry = CY + Math.sin(ang) * ROOM_DIST;
+            let b = new Bot(i, rx, ry, championBrain);
+            if (championBrain) { if (i > 0) b.brain.mutate(0.1); }
+            bots.push(b);
+        }
+        gen++; timer=0; parts=[]; floats=[];
+        document.getElementById('gen-val').innerText=gen;
+    }
+
+    let lT=0; const FPS=1000/60;
+    function loop(ts){
+        if(cvs.width!=window.innerWidth){cvs.width=window.innerWidth;cvs.height=window.innerHeight;}
+        let dT=ts-lT;
+        let ops=gameSpeed, st=performance.now();
+
+        while(ops>0){
+            let al=0; for(let b of bots){b.update(bots);if(!b.dead)al++;}
+            if(gameSpeed<50){
+                for(let i=parts.length-1;i>=0;i--){let p=parts[i];p.x+=p.vx;p.y+=p.vy;p.l-=0.1;if(p.l<=0)parts.splice(i,1);}
+                for(let i=floats.length-1;i>=0;i--){let f=floats[i];f.y-=2;f.l-=0.02;if(f.l<=0)floats.splice(i,1);}
+            }
+            timer++; 
+            if(al<=1 || timer>ROUND_TIME){
+                bots.forEach(b=>!b.dead?b.score+=1000:0);
+                init();
+                if(gameSpeed>20)break;
+            }
+            ops--; if(performance.now()-st>12)break;
+        }
+
+        document.getElementById('alive-val').innerText=bots.filter(b=>!b.dead).length;
+        document.getElementById('timer-val').innerText = Math.max(0, (ROUND_TIME-timer)/60).toFixed(1);
+        document.getElementById('time-bar').style.width = (100*(1-timer/ROUND_TIME)) + "%";
+
+        let sorted = [...bots].sort((a,b)=>b.score-a.score);
+        let htm='';
+        for(let i=0;i<sorted.length;i++){
+            let b=sorted[i];
+            let rowCls = (b.score == championScore) ? "leader" : "";
+            htm+=`<div class="s-row ${rowCls}"><div class="s-cell">${b.id+1}</div><div class="s-cell ${b.w.cl}">${b.w.n}</div><div class="s-cell num">${Math.floor(b.score)}</div><div class="s-cell num" style="color:${b.hp<30?'red':'#fff'}">${Math.floor(b.hp)}</div></div>`;
+        }
+        document.getElementById('stats-body').innerHTML=htm;
+
+        if(renderEnabled && dT>=FPS){
+            lT=ts-(dT%FPS);
+            let mx=9e5,Mx=-9e5,my=9e5,My=-9e5,act=false;
+            for(let b of bots)if(!b.dead){mx=Math.min(mx,b.x);Mx=Math.max(Mx,b.x);my=Math.min(my,b.y);My=Math.max(My,b.y);act=true;}
+            if(!act){mx=CX-1000;Mx=CX+1000;my=CY-1000;My=CY+1000;}
+            let tz=Math.min(cvs.width/(Mx-mx+1500),cvs.height/(My-my+1500)); tz=Math.max(0.1,Math.min(tz,1.0));
+            CAM.x+=((mx+Mx)/2-CAM.x)*0.05; CAM.y+=((my+My)/2-CAM.y)*0.05; CAM.z+=(tz-CAM.z)*0.05;
+
+            ctx.fillStyle='#050505'; ctx.fillRect(0,0,cvs.width,cvs.height);
+            ctx.save(); ctx.translate(cvs.width/2,cvs.height/2); ctx.scale(CAM.z,CAM.z); ctx.translate(-CAM.x,-CAM.y);
+
+            ctx.fillStyle='#211'; ctx.fillRect(0,0,W,H);
+            ctx.fillStyle='#111'; ctx.fillRect(SAFE,SAFE,W-SAFE*2,H-SAFE*2);
+            ctx.strokeStyle='#f00'; ctx.lineWidth=5; ctx.strokeRect(SAFE,SAFE,W-SAFE*2,H-SAFE*2);
+            ctx.strokeStyle='#333'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(CX,CY,300,0,6.28); ctx.stroke();
+            ctx.fillStyle='#334'; for(let w of WALLS)ctx.fillRect(w.x,w.y,w.w,w.h);
+
+            for(let b of bots){
+                if(b.dead)continue;
+                ctx.save(); ctx.translate(b.x,b.y);
+                if(b.jp){ctx.scale(1.4,1.4);ctx.globalAlpha=0.7;}
+                if(gameSpeed==1){
+                    ctx.fillStyle='rgba(255,255,255,0.03)';ctx.beginPath();ctx.moveTo(0,0);
+                    ctx.arc(0,0,800,b.a-VIEW_ANGLE,b.a+VIEW_ANGLE);ctx.fill();
+                }
+                ctx.rotate(b.a);
+                ctx.fillStyle=b.w.c; ctx.beginPath(); ctx.arc(0,0,15,0,6.28); ctx.fill();
+                if(b.saved){ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();}
+                ctx.fillStyle='#ccc'; let h=Math.sin(ts/200)*2;
+                ctx.beginPath(); ctx.arc(12,-12+h,5,0,6.28); ctx.fill(); ctx.beginPath(); ctx.arc(12,12-h,5,0,6.28); ctx.fill();
+                ctx.fillStyle='#eee'; let sw=0,tr=0;
+                if(b.atOn){sw=(b.atP<0.2)?-0.5:(b.atP-0.2)*4-0.5; tr=Math.sin(b.atP*3.14)*15;}
+                ctx.rotate(sw); ctx.translate(tr,0);
+                if(b.w.n=="SWORD"){ctx.fillRect(10,-2,50,4);ctx.fillRect(15,-6,4,12);}
+                if(b.w.n=="AXE"){ctx.fillRect(10,-2,40,4);ctx.beginPath();ctx.arc(45,0,15,1.5,4.7);ctx.fill();}
+                if(b.w.n=="STAFF"){ctx.fillRect(0,-2,100,4);ctx.fillStyle='#44f';ctx.beginPath();ctx.arc(95,0,4,0,6.28);ctx.fill();}
+                if(b.w.n=="NUNCH"){ctx.fillRect(10,-2,20,4);ctx.translate(35,0);if(b.atOn)ctx.rotate(sw*2);ctx.fillRect(0,-2,20,4);}
+                ctx.restore();
+                if(!b.jp){ctx.fillStyle='red';ctx.fillRect(b.x-15,b.y-25,30,4);ctx.fillStyle='#0f0';ctx.fillRect(b.x-15,b.y-25,30*(b.hp/100),4);}
+            }
+            for(let p of parts){ctx.globalAlpha=p.l;ctx.fillStyle=p.c;ctx.beginPath();ctx.arc(p.x,p.y,3,0,6.28);ctx.fill();}
+            ctx.globalAlpha=1;
+            ctx.font="bold 24px monospace"; ctx.textAlign="center";
+            for(let f of floats){ctx.globalAlpha=f.l;ctx.fillStyle=f.c;ctx.fillText(f.t,f.x,f.y);}
+            ctx.globalAlpha=1;
+            ctx.restore();
+        } else if(!renderEnabled && gen%5==0){
+            ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(0,0,cvs.width,cvs.height);
+            ctx.fillStyle='#0ff'; ctx.font='30px monospace'; ctx.textAlign='center';
+            ctx.fillText(`WARP x${gameSpeed}`, cvs.width/2, cvs.height/2);
+        }
+        requestAnimationFrame(loop);
+    }
+
+    // 5. BOOTSTRAP
+    const start = () => {
+        try {
+            cvs = document.getElementById('cvs');
+            ctx = cvs.getContext('2d');
+            init();
+            requestAnimationFrame(loop);
+        } catch(e) { err(e.message); }
+    };
+
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        start();
+    } else {
+        window.addEventListener('load', start);
+    }
+
+})();
+</script>
+</body>
+</html>
