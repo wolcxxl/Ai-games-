@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Chaos Snake: Rules</title>
+<style>
+body{margin:0;padding:0;background:#050505;overflow:hidden;font-family:'Segoe UI',monospace;color:#fff;touch-action:none;user-select:none;-webkit-user-select:none}
+canvas{display:block;background:#000;image-rendering:pixelated}
+#ui{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;display:flex;flex-direction:column;justify-content:space-between;z-index:10}
+.bar{padding:8px;display:flex;justify-content:space-between;background:rgba(20,0,0,0.8);border-bottom:1px solid #500}
+.stat{font-size:14px;font-weight:bold;text-shadow:1px 1px 0 #000}
+.btn{background:#300;border:1px solid #600;color:#faa;padding:4px 8px;cursor:pointer;pointer-events:auto;margin-left:5px;font-size:12px;border-radius:4px}
+.btn:active{background:#500}
+#pad{pointer-events:auto;position:absolute;z-index:20;display:flex;flex-direction:column;align-items:center;gap:5px;opacity:0.6}
+#pad:active{opacity:0.9}
+.row{display:flex;gap:5px}
+.dbtn{width:60px;height:60px;background:rgba(255,255,255,0.1);border:2px solid rgba(255,255,255,0.2);border-radius:12px;color:#fff;font-size:24px;display:flex;justify-content:center;align-items:center;cursor:pointer;backdrop-filter:blur(2px)}
+.dbtn:active{background:rgba(0,255,0,0.2);border-color:#0f0;color:#0f0}
+@media(orientation:portrait){#pad{bottom:30px;left:50%;transform:translateX(-50%)}}
+@media(orientation:landscape){#pad{bottom:20px;right:20px}.dbtn{width:50px;height:50px}}
+.screen{position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(10,0,0,0.95);display:none;flex-direction:column;justify-content:center;align-items:center;z-index:100;pointer-events:auto}
+h1{color:#f00;font-size:36px;margin:0 0 10px 0;text-shadow:0 0 15px #f00;text-transform:uppercase;text-align:center}
+p{color:#ccc;margin-bottom:10px;font-size:16px;text-align:center;line-height:1.5}
+.rules{background:#111;border:1px solid #444;padding:15px;border-radius:8px;margin-bottom:20px;max-width:300px}
+.rule-item{margin:5px 0;font-size:14px;text-align:left}
+.big{padding:15px 40px;font-size:20px;background:#27ae60;border:none;color:#fff;cursor:pointer;font-weight:bold;border-radius:5px;box-shadow:0 0 10px #27ae60}
+.big:active{background:#2ecc71}
+#set{background:#111;border:1px solid #500;padding:20px;width:280px;box-shadow:0 0 20px #000;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:none;pointer-events:auto;z-index:110}
+.sr{margin-bottom:15px}
+.sr label{display:block;color:#ccc;margin-bottom:5px;font-size:12px}
+.sr input{width:100%;background:#000;border:1px solid #444;accent-color:#f00}
+b{color:#fff}
+span.r{color:#f00} span.g{color:#0f0}
+</style>
+</head>
+<body>
+<canvas id="can"></canvas>
+<div id="ui">
+<div class="bar">
+<div class="stat" id="sc">СЧЕТ: 0</div>
+<div class="stat" id="ln" style="color:#0f0">ДЛИНА: 1</div>
+<div style="pointer-events:auto"><button class="btn" id="bm">МЕНЮ</button><button class="btn" id="bf">⛶</button></div>
+</div>
+<div id="pad">
+<div class="row"><div class="dbtn" id="du">▲</div></div>
+<div class="row"><div class="dbtn" id="dl">◀</div><div class="dbtn" id="dd">▼</div><div class="dbtn" id="dr">▶</div></div>
+</div>
+</div>
+
+<div id="start" class="screen" style="display:flex">
+<h1>CHAOS SNAKE</h1>
+<div class="rules">
+<div class="rule-item">🍏 <b>ЕШЬ ЕДУ</b> чтобы расти.</div>
+<div class="rule-item">🔪 <b>КУСАЙ ХВОСТЫ</b> врагов, чтобы отрезать их. Отрезанный хвост станет новой змеей!</div>
+<div class="rule-item">💀 <b>ЛОБОВОЕ ДТП</b>: Выживает тот, кто <span class="g">ДЛИННЕЕ</span>. Равные погибают.</div>
+<div class="rule-item">🚫 <b>НЕ КУСАЙ</b> свой хвост.</div>
+</div>
+<button class="big" id="bst">НАЧАТЬ ИГРУ</button>
+</div>
+
+<div id="set">
+<h3 style="margin:0 0 15px 0;text-align:center;color:#f00">НАСТРОЙКИ</h3>
+<div class="sr"><label>Скорость: <span id="vsp">12</span></label><input type="range" id="isp" min="5" max="30" value="12"></div>
+<div class="sr"><label>Размер клетки: <span id="vsz">20</span></label><input type="range" id="isz" min="10" max="50" value="20"></div>
+<div class="sr"><label>Еда: <span id="vfd">10</span></label><input type="range" id="ifd" min="1" max="100" value="10"></div>
+<div class="sr"><label>Змейки: <span id="vbt">10</span></label><input type="range" id="ibt" min="0" max="50" value="10"></div>
+<button class="btn" style="width:100%;background:#500;color:#fff;padding:10px" id="bsv">ПРОДОЛЖИТЬ</button>
+</div>
+
+<div id="over" class="screen">
+<h1 style="color:#e74c3c">ВЫ ПОГИБЛИ</h1>
+<p id="dmsg">...</p>
+<button class="big" id="brs" style="background:#c0392b">ЗАНОВО</button>
+</div>
+
+<script>
+const can=document.getElementById('can'),ctx=can.getContext('2d',{alpha:false});
+const MIN_LEN=3;
+let cf={spd:12,ts:20,w:0,h:0,mFd:10,mBt:10,trL:15};
+let run=false,dead=false,sc=0,lid=0,lt=0,gt=0;
+let pl={b:[],dx:0,dy:0,ndx:0,ndy:0,gr:0,lh:null,c:'#0f0'};
+let bts=[],fds=[],prt=[];
+let actx=null;
+
+function sfx(t,freq,dur,vol=0.1){
+if(!actx) return;
+const o=actx.createOscillator(),g=actx.createGain();
+o.type=t;o.frequency.setValueAtTime(freq,actx.currentTime);
+if(t==='sawtooth') o.frequency.exponentialRampToValueAtTime(10,actx.currentTime+dur);
+g.gain.setValueAtTime(vol,actx.currentTime);
+g.gain.exponentialRampToValueAtTime(0.01,actx.currentTime+dur);
+o.connect(g);g.connect(actx.destination);
+o.start();o.stop(actx.currentTime+dur);
+}
+function noise(dur){
+if(!actx) return;
+const b=actx.createBufferSize?actx.createBufferSize(1,actx.sampleRate*dur,actx.sampleRate):actx.createBuffer(1,actx.sampleRate*dur,actx.sampleRate);
+const d=b.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+const s=actx.createBufferSource(),g=actx.createGain();
+s.buffer=b;g.gain.setValueAtTime(0.3,actx.currentTime);g.gain.exponentialRampToValueAtTime(0.01,actx.currentTime+dur);
+s.connect(g);g.connect(actx.destination);s.start();
+}
+
+function rsz(){
+can.width=window.innerWidth;can.height=window.innerHeight;
+cf.w=Math.floor(can.width/cf.ts);cf.h=Math.floor(can.height/cf.ts);
+}
+window.onresize=rsz;
+
+function init(){
+rsz();dead=false;run=true;sc=0;gt=0;
+pl.b=[{x:Math.floor(cf.w/2),y:Math.floor(cf.h/2)}];
+pl.dx=0;pl.dy=0;pl.ndx=0;pl.ndy=0;pl.gr=0;pl.lh={...pl.b[0]};
+bts=[];fds=[];prt=[];
+while(fds.length<cf.mFd) spF();
+document.getElementById('over').style.display='none';
+document.getElementById('set').style.display='none';
+document.getElementById('start').style.display='none';
+uUI();
+if(lid) cancelAnimationFrame(lid);
+lt=0;lid=requestAnimationFrame(loop);
+}
+
+function loop(ts){
+if(!run) return;
+let dt=ts-lt;
+if(dt<1000/cf.spd){lid=requestAnimationFrame(loop);return;}
+lt=ts;gt+=dt/1000;
+upd();drw();
+lid=requestAnimationFrame(loop);
+}
+
+function upd(){
+if(!dead&&pl.b.length===0) return kill("Съеден целиком!");
+if(!dead&&pl.b.length>0&&(pl.dx||pl.dy)) prt.push({x:pl.b[0].x,y:pl.b[0].y,c:pl.c,l:cf.trL,t:0});
+if(!dead) mv(pl,true);
+for(let i=bts.length-1;i>=0;i--){
+let b=bts[i];
+if(b.b.length>0&&(b.dx||b.dy)) prt.push({x:b.b[0].x,y:b.b[0].y,c:b.c,l:cf.trL,t:0});
+let m=gAI(b);b.dx=m.x;b.dy=m.y;
+mv(b,false);
+if(b.b.length===0) bts.splice(i,1);
+}
+col();
+for(let i=prt.length-1;i>=0;i--){prt[i].l--;if(prt[i].l<=0)prt.splice(i,1);}
+if(!dead||bts.length>0) while(fds.length<cf.mFd) spF();
+if(dead&&bts.length>0&&fds.length===0){run=false;document.getElementById('over').style.display='flex';document.getElementById('dmsg').innerText="Еда закончилась!";}
+}
+
+function mv(s,isP){
+if(s.ndx!==undefined){s.dx=s.ndx;s.dy=s.ndy;}
+if(!s.dx&&!s.dy) return;
+s.lh={x:s.b[0].x,y:s.b[0].y};
+let nx=s.b[0].x+s.dx,ny=s.b[0].y+s.dy;
+if(nx<0)nx=cf.w-1;if(nx>=cf.w)nx=0;if(ny<0)ny=cf.h-1;if(ny>=cf.h)ny=0;
+let hit=-1;
+for(let i=1;i<s.b.length;i++) if(s.b[i].x===nx&&s.b[i].y===ny) hit=i;
+if(hit!==-1) cut(s.b.splice(hit),s.c);
+s.b.unshift({x:nx,y:ny});
+for(let i=0;i<fds.length;i++){
+if(fds[i].x===nx&&fds[i].y===ny){
+s.gr++;fds.splice(i,1);sfx('sine',600,0.1);
+if(isP){sc+=10;uUI();}
+break;
+}}
+if(s.gr>0)s.gr--;else s.b.pop();
+if(s.st>0)s.st--;
+}
+
+function col(){
+if(dead||pl.b.length===0) return;
+let ph=pl.b[0],plh=pl.lh;
+for(let i=bts.length-1;i>=0;i--){
+let b=bts[i];if(b.st>0||b.b.length===0) continue;
+let bh=b.b[0],blh=b.lh||bh;
+let c1=(ph.x===bh.x&&ph.y===bh.y),c2=(ph.x===blh.x&&ph.y===blh.y&&bh.x===plh.x&&bh.y===plh.y);
+if(c1||c2){
+if(pl.b.length>b.b.length){pl.gr+=b.b.length;sc+=b.b.length*50;bts.splice(i,1);uUI();noise(0.2);}
+else if(b.b.length>pl.b.length){b.gr+=pl.b.length;kill("Тебя раздавил гигант!");return;}
+else{bts.splice(i,1);kill("Лобовое ДТП!");return;}
+continue;
+}
+for(let k=1;k<b.b.length;k++) if(ph.x===b.b[k].x&&ph.y===b.b[k].y){
+let p=b.b.splice(k);pl.gr+=p.length;sc+=p.length*20;uUI();anm(p,b.c);sfx('square',150,0.1);break;
+}
+for(let k=1;k<pl.b.length;k++) if(bh.x===pl.b[k].x&&bh.y===pl.b[k].y){
+let p=pl.b.splice(k);b.gr+=p.length;uUI();anm(p,pl.c);sfx('square',150,0.1);if(pl.b.length===0)kill("Разрезан на куски!");break;
+}
+}
+}
+
+function anm(seg,c){
+seg.forEach(s=>prt.push({x:s.x,y:s.y,c:c,l:30,t:1,dx:(Math.random()-.5)*.2,dy:(Math.random()-.5)*.2}));
+}
+
+function cut(seg,c){
+if(seg.length<MIN_LEN||bts.length>=cf.mBt){
+seg.forEach(s=>fds.push({x:s.x,y:s.y}));anm(seg,c);sfx('square',100,0.2);
+}else{
+let dx=1,dy=0;if(seg.length>1){dx=seg[0].x-seg[1].x;dy=seg[0].y-seg[1].y;}
+bts.push({b:seg,dx:dx||1,dy:dy,c:`hsl(${Math.random()*360},90%,50%)`,gr:0,st:8,lh:{...seg[0]}});
+sfx('sawtooth',200,0.3);
+}
+}
+
+function spF(){
+let v=false,x,y,t=0;
+while(!v&&t<50){
+x=Math.floor(Math.random()*cf.w);y=Math.floor(Math.random()*cf.h);v=true;
+if(!dead) for(let b of pl.b) if(b.x===x&&b.y===y) v=false;
+for(let b of bts) for(let s of b.b) if(s.x===x&&s.y===y) v=false;
+for(let f of fds) if(f.x===x&&f.y===y) v=false;
+t++;
+}
+if(v||t>=50) fds.push({x,y});
+}
+
+function gAI(b){
+let h=b.b[0],mvs=[{x:0,y:-1},{x:0,y:1},{x:-1,y:0},{x:1,y:0}],trg=null;
+let hunt=(!dead&&b.b.length>pl.b.length),eq=(!dead&&b.b.length===pl.b.length);
+if(hunt){
+for(let m of mvs){
+let nx=h.x+m.x,ny=h.y+m.y;
+if(nx<0)nx=cf.w-1;if(nx>=cf.w)nx=0;if(ny<0)ny=cf.h-1;if(ny>=cf.h)ny=0;
+if(!dead&&pl.b[0].x===nx&&pl.b[0].y===ny&&!(m.x===-b.dx&&m.y===-b.dy)) return m;
+}
+trg=pl.b[0];
+}else{
+let md=9999;
+for(let f of fds){let d=Math.abs(h.x-f.x)+Math.abs(h.y-f.y);if(d<md){md=d;trg=f;}}
+}
+let bm={x:b.dx,y:b.dy},bs=-99999;
+for(let m of mvs){
+if(m.x===-b.dx&&m.y===-b.dy&&b.b.length>1) continue;
+let nx=h.x+m.x,ny=h.y+m.y;
+if(nx<0)nx=cf.w-1;if(nx>=cf.w)nx=0;if(ny<0)ny=cf.h-1;if(ny>=cf.h)ny=0;
+let sc=0;
+if(oc(nx,ny,hunt)) sc-=10000;
+else if(eq&&!dead&&pl.b[0].x===nx&&pl.b[0].y===ny) sc-=5000;
+if(trg){sc-=Math.abs(nx-trg.x)+Math.abs(ny-trg.y);}
+sc+=Math.random()*2;
+if(sc>bs){bs=sc;bm=m;}
+}
+return bm;
+}
+
+function oc(x,y,hnt){
+if(!dead){
+let s=hnt?1:0;for(let k=s;k<pl.b.length;k++)if(pl.b[k].x===x&&pl.b[k].y===y)return true;
+}
+for(let b of bts)for(let s of b.b)if(s.x===x&&s.y===y)return true;
+return false;
+}
+
+function kill(m){
+dead=true;pl.b=[];document.getElementById('over').style.display='flex';
+document.getElementById('dmsg').innerText=m;noise(0.5);
+}
+
+function uUI(){
+document.getElementById('sc').innerText="СЧЕТ: "+sc;
+document.getElementById('ln').innerText="ДЛИНА: "+(!dead?pl.b.length:0);
+}
+
+function drw(){
+ctx.fillStyle='#000';ctx.fillRect(0,0,can.width,can.height);
+let ts=cf.ts,gp=1;
+for(let p of prt){
+let a=p.l/(p.t?30:cf.trL);ctx.fillStyle=p.c;ctx.globalAlpha=a;
+let dx=p.x+(p.t?p.dx*(30-p.l):0),dy=p.y+(p.t?p.dy*(30-p.l):0);
+ctx.fillRect(dx*ts,dy*ts,ts-gp,ts-gp);
+}
+ctx.globalAlpha=1;
+ctx.fillStyle='#d00';
+let ps=1+Math.sin(gt*5)*0.1,sts=ts*ps,off=(ts-sts)/2;
+for(let f of fds) ctx.fillRect(f.x*ts+off,f.y*ts+off,sts,sts);
+for(let b of bts){
+let st=b.st>0,dg=!dead&&(b.b.length>pl.b.length);
+if(st&&(Date.now()&64)) continue;
+ctx.fillStyle=dg?'#f00':b.c;
+for(let k=0;k<b.b.length;k++){
+let s=b.b[k];
+if(k===0){
+ctx.shadowColor=ctx.fillStyle;ctx.shadowBlur=10;
+ctx.fillRect(s.x*ts,s.y*ts,ts-gp,ts-gp);
+ctx.shadowBlur=0;ctx.fillStyle='#fff';
+ctx.fillRect(s.x*ts+4,s.y*ts+4,4,4);ctx.fillRect(s.x*ts+ts-8,s.y*ts+4,4,4);
+ctx.fillStyle=dg?'#f00':b.c;
+}else ctx.fillRect(s.x*ts,s.y*ts,ts-gp,ts-gp);
+}
+}
+if(!dead){
+ctx.fillStyle='#0f0';
+for(let k=0;k<pl.b.length;k++){
+let s=pl.b[k];
+if(k===0){
+ctx.shadowColor='#0f0';ctx.shadowBlur=15;
+ctx.fillRect(s.x*ts,s.y*ts,ts-gp,ts-gp);
+ctx.shadowBlur=0;ctx.fillStyle='#fff';ctx.fillRect(s.x*ts+4,s.y*ts+4,ts-8,ts-8);ctx.fillStyle='#0f0';
+}else ctx.fillRect(s.x*ts,s.y*ts,ts-gp,ts-gp);
+}
+}
+}
+
+const bns={'du':{x:0,y:-1},'dd':{x:0,y:1},'dl':{x:-1,y:0},'dr':{x:1,y:0}};
+for(let k in bns){
+let el=document.getElementById(k);
+let h=e=>{if(e.cancelable)e.preventDefault();if(dead)return;let d=bns[k];if((d.x&&pl.dx===-d.x)||(d.y&&pl.dy===-d.y))return;pl.ndx=d.x;pl.ndy=d.y;};
+el.addEventListener('touchstart',h,{passive:false});el.addEventListener('mousedown',h);
+}
+window.onkeydown=e=>{
+if(dead)return;
+if(e.key=='ArrowUp'&&pl.dy!==1){pl.ndx=0;pl.ndy=-1;}
+if(e.key=='ArrowDown'&&pl.dy!==-1){pl.ndx=0;pl.ndy=1;}
+if(e.key=='ArrowLeft'&&pl.dx!==1){pl.ndx=-1;pl.ndy=0;}
+if(e.key=='ArrowRight'&&pl.dx!==-1){pl.ndx=1;pl.ndy=0;}
+};
+const se=document.getElementById('set');
+document.getElementById('bst').onclick=()=>{
+document.getElementById('start').style.display='none';
+if(!actx) actx=new(window.AudioContext||window.webkitAudioContext)();
+if(actx.state==='suspended') actx.resume();
+init();
+};
+document.getElementById('bm').onclick=()=>{run=false;se.style.display='block';};
+document.getElementById('bsv').onclick=()=>{
+cf.spd=+document.getElementById('isp').value;cf.mFd=+document.getElementById('ifd').value;cf.mBt=+document.getElementById('ibt').value;
+let ns=+document.getElementById('isz').value;se.style.display='none';
+if(ns!==cf.ts){cf.ts=ns;init();}else{run=true;lt=0;lid=requestAnimationFrame(loop);}
+};
+document.getElementById('bf').onclick=()=>!document.fullscreenElement?document.documentElement.requestFullscreen():document.exitFullscreen();
+document.getElementById('brs').onclick=init;
+['sp','sz','fd','bt'].forEach(k=>{let e=document.getElementById('i'+k);e.oninput=()=>document.getElementById('v'+k).innerText=e.value;});
+rsz();
+</script>
+</body>
+</html>

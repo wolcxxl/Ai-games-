@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Map Editor Engine</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace; /* Моноширинный шрифт для атмосферы кода */
+            background-color: #222;
+            color: #ddd;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+        h2 { margin-bottom: 5px; color: #fff; }
+        .controls {
+            background: #333;
+            padding: 15px;
+            border-radius: 8px;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            margin-bottom: 15px;
+            border: 1px solid #444;
+        }
+        canvas {
+            background-color: #eee;
+            image-rendering: pixelated; /* Чтобы было четко */
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+        .legend {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #aaa;
+        }
+        .stats {
+            margin-top: 15px;
+            display: flex;
+            gap: 15px;
+            font-weight: bold;
+        }
+        .stat-box {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: #444;
+            padding: 5px 12px;
+            border-radius: 4px;
+        }
+        input[type=range] { cursor: pointer; width: 200px; }
+        button {
+            cursor: pointer; padding: 5px 15px; font-weight: bold; 
+            background: #d35400; border: none; color: white; border-radius: 3px;
+        }
+        button:hover { background: #e67e22; }
+    </style>
+</head>
+<body>
+
+    <h2>AI Playground: Редактор</h2>
+    
+    <div class="controls">
+        <div>
+            Скорость: <input type="range" id="speedRange" min="0" max="100" value="5">
+        </div>
+        <button onclick="resetGame()">Сброс обучения</button>
+        <div>Поколение: <span id="epCount" style="color:#e67e22">0</span></div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+    
+    <div class="stats" id="statsDisplay"></div>
+
+    <div class="legend">
+        Легенда карты: # - Стена | . - Пол | S - Старт | F - Финиш | X - Шипы (Смерть)
+    </div>
+
+    <script>
+        // ==========================================
+        //  РЕДАКТИРУЙ КАРТУ ЗДЕСЬ (Любой размер!)
+        // ==========================================
+        const MAP_DESIGN = [
+            "####################",
+            "#S.................#",
+            "#S.#####.#########.#",
+            "#S.#...#.#.......#.#",
+            "####.#.#.#.#####.#.#",
+            "#....#.#...#...#...#",
+            "#.####.#####.###.###",
+            "#......#.....#.....#",
+            "#.####.#.###.#####.#",
+            "#.#....#...#.......#",
+            "#.#.######.#######.#",
+            "#.#......#.#.......#",
+            "#.######.#.#.#####.#",
+            "#......#...#.#...#.#",
+            "######.#####.#.#.#.#",
+            "#F...#.......#.#...#",
+            "#F.#.#########.###.#",
+            "#F.#...............#",
+            "####################"
+        ];
+        // ==========================================
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const speedRange = document.getElementById('speedRange');
+        
+        // Настройки AI
+        const TILE_SIZE = 30; // Размер клетки в пикселях
+        const LEARNING_RATE = 0.5;
+        const DISCOUNT = 0.99;
+        let epsilon = 1.0; // Любопытство (1.0 = 100% случайно в начале)
+        
+        // Парсинг карты
+        let mapMatrix = [];
+        let startPoints = [];
+        const ROWS = MAP_DESIGN.length;
+        const COLS = MAP_DESIGN[0].length;
+
+        canvas.width = COLS * TILE_SIZE;
+        canvas.height = ROWS * TILE_SIZE;
+
+        function parseMap() {
+            mapMatrix = [];
+            startPoints = [];
+            for (let y = 0; y < ROWS; y++) {
+                let row = [];
+                for (let x = 0; x < COLS; x++) {
+                    let char = MAP_DESIGN[y][x];
+                    if (char === '#') row.push(1);      // Стена
+                    else if (char === '.') row.push(0); // Пол
+                    else if (char === 'S') {
+                        row.push(2); // Старт
+                        startPoints.push({x, y});
+                    }
+                    else if (char === 'F') row.push(3); // Финиш
+                    else if (char === 'X') row.push(4); // Ловушка
+                    else row.push(0);
+                }
+                mapMatrix.push(row);
+            }
+        }
+
+        class Bot {
+            constructor(color, id, startIndex) {
+                this.color = color;
+                this.id = id;
+                this.startIndex = startIndex;
+                this.qTable = {};
+                this.wins = 0;
+                this.reset();
+            }
+
+            reset() {
+                // Если стартов меньше чем ботов, берем по кругу
+                const pos = startPoints[this.startIndex % startPoints.length] || {x:1, y:1};
+                this.x = pos.x;
+                this.y = pos.y;
+                this.dead = false;
+                this.finished = false;
+                this.steps = 0;
+            }
+
+            getQ(state) {
+                if (!this.qTable[state]) this.qTable[state] = { up:0, down:0, left:0, right:0 };
+                return this.qTable[state];
+            }
+
+            move() {
+                if (this.dead || this.finished) return;
+
+                const state = `${this.x},${this.y}`;
+                const actions = ['up', 'down', 'left', 'right'];
+                let action;
+
+                // Epsilon-Greedy
+                if (Math.random() < epsilon) {
+                    action = actions[Math.floor(Math.random() * actions.length)];
+                } else {
+                    const qs = this.getQ(state);
+                    const maxVal = Math.max(...Object.values(qs));
+                    // Если несколько лучших ходов - выбираем случайно из них
+                    const best = Object.keys(qs).filter(k => qs[k] === maxVal);
+                    action = best[Math.floor(Math.random() * best.length)];
+                }
+
+                let nx = this.x;
+                let ny = this.y;
+                if (action === 'up') ny--;
+                if (action === 'down') ny++;
+                if (action === 'left') nx--;
+                if (action === 'right') nx++;
+
+                let reward = -0.5; // Небольшой штраф за шаг
+                let result = 'move';
+
+                // Физика
+                if (ny < 0 || ny >= ROWS || nx < 0 || nx >= COLS || mapMatrix[ny][nx] === 1) {
+                    reward = -50; 
+                    result = 'crash';
+                    this.dead = true;
+                } else if (mapMatrix[ny][nx] === 4) { // Шипы
+                    reward = -100;
+                    result = 'trap';
+                    this.dead = true;
+                } else if (mapMatrix[ny][nx] === 3) { // Финиш
+                    reward = 500;
+                    result = 'win';
+                    this.finished = true;
+                    this.wins++;
+                }
+
+                // Обучение
+                const nextState = `${nx},${ny}`;
+                let maxNext = 0;
+                if (result === 'move') {
+                    maxNext = Math.max(...Object.values(this.getQ(nextState)));
+                }
+                const currentQs = this.getQ(state);
+                currentQs[action] = currentQs[action] + LEARNING_RATE * (reward + DISCOUNT * maxNext - currentQs[action]);
+
+                if (result === 'move' || result === 'win') {
+                    this.x = nx;
+                    this.y = ny;
+                }
+                this.steps++;
+            }
+        }
+
+        // 4 Бота
+        const bots = [
+            new Bot('#e74c3c', 'Red', 0),
+            new Bot('#2ecc71', 'Green', 1),
+            new Bot('#3498db', 'Blue', 2),
+            new Bot('#f1c40f', 'Yellow', 3)
+        ];
+
+        let episode = 0;
+        let lastTime = 0;
+
+        function resetGame() {
+            parseMap();
+            bots.forEach(b => {
+                b.qTable = {};
+                b.wins = 0;
+                b.reset();
+            });
+            episode = 0;
+            epsilon = 1.0;
+            updateStats();
+        }
+
+        // Отрисовка человечка
+        function drawBot(b) {
+            const cx = b.x * TILE_SIZE + TILE_SIZE/2;
+            const cy = b.y * TILE_SIZE + TILE_SIZE/2;
+            const stepAnim = Math.sin(b.steps * 0.8) * 5;
+
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = b.color;
+            ctx.fillStyle = b.color;
+
+            // Ноги
+            ctx.beginPath();
+            ctx.moveTo(cx, cy + 5);
+            ctx.lineTo(cx - 3 + stepAnim, cy + 13);
+            ctx.moveTo(cx, cy + 5);
+            ctx.lineTo(cx + 3 - stepAnim, cy + 13);
+            ctx.stroke();
+
+            // Тело и голова
+            ctx.fillRect(cx - 3, cy - 4, 6, 10); // Тело
+            ctx.beginPath();
+            ctx.arc(cx, cy - 7, 3, 0, Math.PI*2); // Голова
+            ctx.fill();
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Карта
+            for (let y = 0; y < ROWS; y++) {
+                for (let x = 0; x < COLS; x++) {
+                    const type = mapMatrix[y][x];
+                    const px = x * TILE_SIZE;
+                    const py = y * TILE_SIZE;
+
+                    if (type === 1) { // Стена
+                        ctx.fillStyle = '#2c3e50';
+                        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+                        ctx.strokeStyle = '#34495e';
+                        ctx.strokeRect(px, py, TILE_SIZE, TILE_SIZE);
+                    } else if (type === 3) { // Финиш
+                        ctx.fillStyle = '#000';
+                        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+                        ctx.fillStyle = '#fff';
+                        ctx.fillRect(px, py, TILE_SIZE/2, TILE_SIZE/2);
+                        ctx.fillRect(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/2, TILE_SIZE/2);
+                    } else if (type === 4) { // Шипы
+                        ctx.fillStyle = '#c0392b';
+                        ctx.fillRect(px + 5, py + 5, TILE_SIZE - 10, TILE_SIZE - 10);
+                    } else if (type === 2) { // Старт
+                         ctx.fillStyle = 'rgba(46, 204, 113, 0.2)';
+                         ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+                    }
+                }
+            }
+
+            // Боты
+            bots.forEach(b => {
+                if (!b.dead) drawBot(b);
+            });
+        }
+
+        function updateStats() {
+            const el = document.getElementById('statsDisplay');
+            el.innerHTML = bots.map(b => 
+                `<div class="stat-box"><div style="width:10px;height:10px;background:${b.color};border-radius:50%"></div>${b.wins}</div>`
+            ).join('');
+            document.getElementById('epCount').innerText = episode;
+        }
+
+        function loop(timestamp) {
+            const rawSpeed = parseInt(speedRange.value);
+            
+            // Логика скорости: 
+            // 0-20: Медленно с задержкой (Slow Motion)
+            // 21-100: Быстро без задержки (Fast Forward)
+            
+            let shouldDraw = true;
+            let loops = 1;
+
+            if (rawSpeed <= 20) {
+                // Задержка: 20=0ms, 0=200ms
+                const delay = (20 - rawSpeed) * 10; 
+                if (timestamp - lastTime < delay) {
+                    requestAnimationFrame(loop);
+                    return;
+                }
+                lastTime = timestamp;
+            } else {
+                // Ускорение: 21=1 шаг, 100=80 шагов за кадр
+                loops = rawSpeed - 20;
+                shouldDraw = true; // Рисуем только в конце цикла
+            }
+
+            // Игровой цикл
+            for (let i = 0; i < loops; i++) {
+                let active = false;
+                bots.forEach(b => {
+                    if (!b.dead && !b.finished) {
+                        b.move();
+                        active = true;
+                    }
+                });
+
+                if (!active) {
+                    episode++;
+                    if (epsilon > 0.05) epsilon *= 0.99;
+                    bots.forEach(b => b.reset());
+                    updateStats();
+                    // Если очень быстро - отрисовку можно пропускать, но оставим для плавности
+                }
+            }
+
+            if (shouldDraw) draw();
+            requestAnimationFrame(loop);
+        }
+
+        // Старт
+        parseMap();
+        updateStats();
+        requestAnimationFrame(loop);
+
+    </script>
+</body>
+</html>

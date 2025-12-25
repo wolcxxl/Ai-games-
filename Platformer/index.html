@@ -2,379 +2,626 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>AI Map Editor Engine</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Super Platformer: FIXED</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Courier New', monospace; /* Моноширинный шрифт для атмосферы кода */
-            background-color: #222;
-            color: #ddd;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            margin: 0;
-            padding: 20px;
+        body { margin: 0; overflow: hidden; background: #0f0c29; font-family: 'Press Start 2P', cursive; color: white; touch-action: none; user-select: none; -webkit-user-select: none; }
+        canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+        
+        /* UI Layers */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 10; }
+        
+        .screen { 
+            background: rgba(20, 20, 30, 0.95); padding: 30px; 
+            border: 4px solid #00d2ff; border-radius: 15px; 
+            text-align: center; pointer-events: auto; display: none; 
+            box-shadow: 0 0 50px rgba(0, 210, 255, 0.3); 
+            image-rendering: pixelated; min-width: 300px; max-width: 90%;
         }
-        h2 { margin-bottom: 5px; color: #fff; }
-        .controls {
-            background: #333;
-            padding: 15px;
-            border-radius: 8px;
-            display: flex;
-            gap: 20px;
-            align-items: center;
-            margin-bottom: 15px;
-            border: 1px solid #444;
-        }
-        canvas {
-            background-color: #eee;
-            image-rendering: pixelated; /* Чтобы было четко */
-            box-shadow: 0 0 20px rgba(0,0,0,0.8);
-        }
-        .legend {
-            margin-top: 10px;
-            font-size: 12px;
-            color: #aaa;
-        }
-        .stats {
-            margin-top: 15px;
-            display: flex;
-            gap: 15px;
-            font-weight: bold;
-        }
-        .stat-box {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            background: #444;
-            padding: 5px 12px;
-            border-radius: 4px;
-        }
-        input[type=range] { cursor: pointer; width: 200px; }
+        
+        .active { display: block; animation: popIn 0.3s ease; }
+        @keyframes popIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+        h1 { margin-top: 0; color: #00d2ff; font-size: 24px; text-shadow: 0 0 10px #00d2ff; line-height: 1.5; margin-bottom: 15px; }
+        
         button {
-            cursor: pointer; padding: 5px 15px; font-weight: bold; 
-            background: #d35400; border: none; color: white; border-radius: 3px;
+            background: #e52521; color: white; border: 0; border-bottom: 4px solid #8b0000; padding: 15px 20px;
+            text-align: center; font-family: 'Press Start 2P', cursive; font-size: 10px; margin: 5px; cursor: pointer; 
+            transition: 0.1s; position: relative; width: 80%;
         }
-        button:hover { background: #e67e22; }
+        button:active { transform: translateY(4px); border-bottom: 0; margin-bottom: 9px; }
+        button.secondary { background: #2196F3; border-color: #0d47a1; }
+        button.bot-btn { background: #9C27B0; border-color: #4A148C; }
+        button.bot-btn:hover { background: #AB47BC; }
+        
+        .select-box { margin: 15px 0; text-align: left; }
+        label { font-size: 10px; color: #00d2ff; display: block; margin-bottom: 5px; }
+        select { width: 100%; padding: 10px; font-family: 'Press Start 2P'; font-size: 10px; background: #333; color: white; border: 2px solid #555; }
+
+        #hud { position: absolute; top: 20px; left: 20px; width: 95%; font-size: 14px; pointer-events: none; display: none; flex-direction: row; gap: 20px; text-shadow: 2px 2px 0 #000; z-index: 5; }
+        #bot-indicator { position: absolute; top: 60px; left: 20px; color: #FF00FF; font-size: 12px; display: none; animation: blink 1s infinite; text-shadow: 0 0 5px #FF00FF; }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        .hp-bar { width: 150px; height: 15px; background: #333; border: 2px solid white; display: inline-block; vertical-align: bottom; skewX(-20deg); }
+        .hp-fill { height: 100%; background: #00ff00; width: 100%; transition: width 0.2s; animation: pulseHp 1.5s infinite; }
+        @keyframes pulseHp { 0% { transform: scaleX(1); } 50% { transform: scaleX(1.02); } 100% { transform: scaleX(1); } }
+        
+        .level-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; max-height: 200px; overflow-y: auto; }
+        .lvl-btn { padding: 10px 0; font-size: 10px; width: 100%; margin: 0; }
+
+        #mobile-controls { position: absolute; bottom: 20px; left: 0; width: 100%; height: 120px; pointer-events: none; display: none; justify-content: space-between; padding: 0 30px; box-sizing: border-box; z-index: 20; }
+        @media (max-width: 900px) { #mobile-controls { display: flex; } .screen { transform: scale(0.9); } .hp-bar { width: 80px; } }
+        .control-group { display: flex; gap: 20px; pointer-events: auto; align-items: flex-end; }
+        .touch-btn { width: 65px; height: 65px; background: rgba(255, 255, 255, 0.15); border: 2px solid rgba(255, 255, 255, 0.4); border-radius: 50%; color: white; font-size: 24px; display: flex; justify-content: center; align-items: center; backdrop-filter: blur(2px); }
+        .touch-btn:active { background: rgba(255, 255, 255, 0.4); transform: scale(0.95); }
+        #btn-shoot { background: rgba(255, 50, 50, 0.3); border-color: rgba(255, 50, 50, 0.6); width: 75px; height: 75px; font-size: 30px; }
+        #btn-jump { background: rgba(50, 255, 50, 0.2); border-color: rgba(50, 255, 50, 0.6); margin-bottom: 20px; }
     </style>
 </head>
 <body>
 
-    <h2>AI Playground: Редактор</h2>
-    
-    <div class="controls">
-        <div>
-            Скорость: <input type="range" id="speedRange" min="0" max="100" value="5">
+    <div id="hud">
+        <div>HP <div class="hp-bar"><div id="hp-fill" class="hp-fill"></div></div></div>
+        <div>LVL <span id="hud-lvl" style="color:#00d2ff">1</span></div>
+        <div>SCORE <span id="hud-kills">0</span></div>
+    </div>
+    <div id="bot-indicator">[BOT: GOD MODE ACTIVE]</div>
+
+    <div id="mobile-controls">
+        <div class="control-group">
+            <div class="touch-btn" id="btn-left">←</div>
+            <div class="touch-btn" id="btn-right">→</div>
         </div>
-        <button onclick="resetGame()">Сброс обучения</button>
-        <div>Поколение: <span id="epCount" style="color:#e67e22">0</span></div>
+        <div class="control-group">
+            <div class="touch-btn" id="btn-shoot">🔥</div>
+            <div class="touch-btn" id="btn-jump">↑</div>
+        </div>
+    </div>
+
+    <div id="ui-layer">
+        <div id="menu-start" class="screen active">
+            <h1>PLATFORMER<br>FINAL FIX</h1>
+            
+            <div class="select-box">
+                <label>ТИП МИРА:</label>
+                <select id="gen-style" onchange="levelGenStyle = this.value">
+                    <option value="CLASSIC">КЛАССИКА</option>
+                    <option value="SKY">НЕБЕСА (ПАРКУР)</option>
+                    <option value="GROUND">ЗЕМЛЯ</option>
+                </select>
+            </div>
+
+            <div>
+                <button onclick="startGame('easy')">ИГРАТЬ (ЛЕГКО)</button>
+                <button onclick="startGame('normal')">ИГРАТЬ (НОРМА)</button>
+            </div>
+            <button class="bot-btn" onclick="startBotMode()">🤖 ЗАПУСТИТЬ AI</button>
+            <button class="secondary" onclick="showLevelSelect()">ВЫБРАТЬ УРОВЕНЬ</button>
+        </div>
+
+        <div id="menu-levels" class="screen">
+            <h1>УРОВНИ</h1>
+            <div class="level-grid" id="level-buttons"></div>
+            <button class="secondary" onclick="showMenu()">НАЗАД</button>
+        </div>
+
+        <div id="menu-gameover" class="screen">
+            <h1 id="go-title">GAME OVER</h1>
+            <p id="go-msg"></p>
+            <button onclick="restartLevel()">РЕСТАРТ</button>
+            <button class="secondary" onclick="showMenu()">МЕНЮ</button>
+        </div>
     </div>
 
     <canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const GRAVITY = 0.45; 
+const MAX_LEVELS = 30;
+const MAX_HP = 15;
+
+let gameState = 'MENU'; 
+let difficulty = 'normal';
+let levelGenStyle = 'CLASSIC';
+let currentLevel = 1;
+let score = 0;
+let isBotActive = false;
+let loopId = null; 
+
+// ЭФФЕКТЫ
+let screenShake = 0;
+let camera = { x: 0, y: 0 };
+let clouds = []; 
+let mountains = [];
+
+// ПЕРЕМЕННЫЕ
+let player;
+let platforms = [];
+let enemies = [];
+let bullets = [];
+let enemyBullets = [];
+let particles = [];
+let floatingTexts = []; 
+let checkpoints = [];
+let exitPortal = null;
+
+const keys = { left: false, right: false, up: false, space: false };
+
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+window.addEventListener('resize', resize); resize();
+
+// --- ГРАФИКА И РИСОВАНИЕ ---
+function drawPixelRect(x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(Math.floor(x), Math.floor(y), Math.max(1, Math.floor(w)), Math.max(1, Math.floor(h))); }
+
+class FloatingText {
+    constructor(x, y, text, color) { this.x = x; this.y = y; this.text = text; this.color = color; this.life = 60; this.vy = -1; }
+    update() { this.y += this.vy; this.life--; }
+    draw(ctx, camX) { ctx.fillStyle = this.color; ctx.font = "12px 'Press Start 2P'"; ctx.globalAlpha = this.life / 60; ctx.fillText(this.text, this.x - camX, this.y); ctx.globalAlpha = 1; }
+}
+
+function addDamageText(x, y, amount, isPlayer) { floatingTexts.push(new FloatingText(x, y - 20, "-" + amount, isPlayer ? '#FF4444' : '#FFFF44')); }
+function triggerScreenShake(amount) { screenShake = amount; }
+
+function drawPlayerCharacter(ctx, x, y, w, h, facingRight, isInvuln, walkCycle, isShooting) {
+    if (isInvuln && Math.floor(Date.now()/100)%2) return;
+    if (player && player.isGhost) ctx.globalAlpha = 0.5;
+
+    const bodyColor = isBotActive ? '#8a2be2' : '#FF3333';
+    const armColor = isBotActive ? '#6a1b9a' : '#DD0000';
+    const skinColor = '#FFCCAA';
+    const eyeColor = isBotActive ? '#00FF00' : 'black';
+    const pantsColor = '#1111EE';
+
+    drawPixelRect(x + w * 0.1, y + h * 0.3, w * 0.8, h * 0.7, bodyColor); // Body
+    drawPixelRect(x + w * 0.25, y, w * 0.5, h * 0.35, skinColor); // Face
+    drawPixelRect(x + w * 0.1, y + h * 0.05, w * 0.8, h * 0.2, armColor); // Hat
+    drawPixelRect(facingRight ? x + w * 0.7 : x + w * 0.1, y + h * 0.1, w * 0.2, h * 0.1, armColor);
+
+    let eyeOffsetX = facingRight ? w * 0.4 : w * 0.2;
+    drawPixelRect(x + eyeOffsetX, y + h * 0.15, w * 0.15, h * 0.08, eyeColor);
+
+    let armY = y + h * 0.35; let armLen = h * 0.3; let armX = facingRight ? x + w * 0.7 : x + w * 0.1;
+    if (isShooting) {
+        let shootOffset = facingRight ? 5 : -5;
+        drawPixelRect(armX + shootOffset, armY, w * 0.2, armLen * 0.8, skinColor);
+        drawPixelRect(armX + shootOffset + (facingRight ? w*0.1 : -w*0.1), armY + armLen*0.5, w * 0.3, h * 0.08, '#555');
+    } else {
+        drawPixelRect(armX, armY, w * 0.2, armLen, skinColor);
+    }
     
-    <div class="stats" id="statsDisplay"></div>
+    let legY = y + h * 0.7; let legH = h * 0.3; let legW = w * 0.3;
+    let legOffset = (walkCycle % 20 < 10) ? 2 : -2;
+    drawPixelRect(x + w * 0.2, legY + legOffset, legW, legH, pantsColor);
+    drawPixelRect(x + w * 0.5, legY - legOffset, legW, legH, pantsColor);
+    ctx.globalAlpha = 1;
+}
 
-    <div class="legend">
-        Легенда карты: # - Стена | . - Пол | S - Старт | F - Финиш | X - Шипы (Смерть)
-    </div>
+function drawZombieCharacter(ctx, x, y, w, h, facingRight) {
+    drawPixelRect(x + w * 0.1, y + h * 0.2, w * 0.8, h * 0.8, '#4CAF50');
+    drawPixelRect(x + w * 0.2, y, w * 0.6, h * 0.3, '#4CAF50');
+    drawPixelRect(x + w * 0.1, y + h * 0.7, w * 0.8, h * 0.3, '#2E2E2E');
+    ctx.shadowBlur = 8; ctx.shadowColor = '#F00';
+    let e1 = x + (facingRight ? w * 0.6 : w * 0.2);
+    drawPixelRect(e1, y + h * 0.1, w * 0.15, h * 0.08, '#F00');
+    ctx.shadowBlur = 0;
+}
 
-    <script>
-        // ==========================================
-        //  РЕДАКТИРУЙ КАРТУ ЗДЕСЬ (Любой размер!)
-        // ==========================================
-        const MAP_DESIGN = [
-            "####################",
-            "#S.................#",
-            "#S.#####.#########.#",
-            "#S.#...#.#.......#.#",
-            "####.#.#.#.#####.#.#",
-            "#....#.#...#...#...#",
-            "#.####.#####.###.###",
-            "#......#.....#.....#",
-            "#.####.#.###.#####.#",
-            "#.#....#...#.......#",
-            "#.#.######.#######.#",
-            "#.#......#.#.......#",
-            "#.######.#.#.#####.#",
-            "#......#...#.#...#.#",
-            "######.#####.#.#.#.#",
-            "#F...#.......#.#...#",
-            "#F.#.#########.###.#",
-            "#F.#...............#",
-            "####################"
-        ];
-        // ==========================================
+function drawGround(ctx, x, y, w, h) {
+    let dirtColor = '#2d2d2d'; let grassColor = '#388E3C';
+    if (levelGenStyle === 'SKY') { dirtColor = '#5D4037'; grassColor = '#76FF03'; }
+    if (levelGenStyle === 'GROUND') { dirtColor = '#3E2723'; grassColor = '#2E7D32'; }
+    drawPixelRect(x, y, w, h, dirtColor); drawPixelRect(x, y, w, 8, grassColor);
+    for(let i=0; i<w; i+=40) if((i + x) % 80 < 40) drawPixelRect(x+i, y+20, 20, 10, 'rgba(0,0,0,0.2)'); 
+}
 
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        const speedRange = document.getElementById('speedRange');
-        
-        // Настройки AI
-        const TILE_SIZE = 30; // Размер клетки в пикселях
-        const LEARNING_RATE = 0.5;
-        const DISCOUNT = 0.99;
-        let epsilon = 1.0; // Любопытство (1.0 = 100% случайно в начале)
-        
-        // Парсинг карты
-        let mapMatrix = [];
-        let startPoints = [];
-        const ROWS = MAP_DESIGN.length;
-        const COLS = MAP_DESIGN[0].length;
+// --- КЛАССЫ СУЩНОСТЕЙ ---
+class Entity {
+    constructor(x, y, w, h) { this.x = x; this.y = y; this.w = w; this.h = h; this.vx = 0; this.vy = 0; this.markedForDeletion = false; this.grounded = false; }
+}
 
-        canvas.width = COLS * TILE_SIZE;
-        canvas.height = ROWS * TILE_SIZE;
+class Player extends Entity {
+    constructor(x, y) {
+        super(x, y, 32, 32);
+        this.speed = 4.5; this.jumpPower = -16; this.hp = MAX_HP;
+        this.lastCheckpoint = { x: x, y: y };
+        this.shootTimer = 0; this.facingRight = true; this.invulnTimer = 0;
+        this.jumpCount = 0; this.maxJumps = 3;
+        this.hasUsedSaviorJump = false; this.isGhost = false; this.walkCycle = 0; this.isShooting = false;
+    }
 
-        function parseMap() {
-            mapMatrix = [];
-            startPoints = [];
-            for (let y = 0; y < ROWS; y++) {
-                let row = [];
-                for (let x = 0; x < COLS; x++) {
-                    let char = MAP_DESIGN[y][x];
-                    if (char === '#') row.push(1);      // Стена
-                    else if (char === '.') row.push(0); // Пол
-                    else if (char === 'S') {
-                        row.push(2); // Старт
-                        startPoints.push({x, y});
-                    }
-                    else if (char === 'F') row.push(3); // Финиш
-                    else if (char === 'X') row.push(4); // Ловушка
-                    else row.push(0);
-                }
-                mapMatrix.push(row);
-            }
+    jump() {
+        if (this.grounded || this.jumpCount < this.maxJumps) {
+            this.vy = this.jumpPower; this.grounded = false; this.jumpCount++;
+            createParticles(this.x + this.w/2, this.y + this.h, '#EEE', 5, 0.5);
+        }
+    }
+    
+    saviorJump() {
+        this.vy = -35; this.grounded = false; this.hasUsedSaviorJump = true; this.isGhost = true; 
+        createParticles(this.x + this.w/2, this.y + this.h, '#00FF00', 30, 2); triggerScreenShake(10);
+    }
+
+    update() {
+        let moveDir = 0;
+        if (!isBotActive) { if (keys.left) moveDir = -1; if (keys.right) moveDir = 1; } 
+        else { if (keys.left) moveDir = -1; if (keys.right) moveDir = 1; }
+
+        if (moveDir !== 0) {
+            this.vx = moveDir * this.speed; this.facingRight = moveDir > 0; this.walkCycle++;
+        } else { this.vx *= 0.8; }
+
+        if (this.shootTimer > 0) { this.shootTimer--; this.isShooting = true; } else { this.isShooting = false; }
+        if (keys.space && this.shootTimer <= 0) {
+            bullets.push(new Bullet(this.x + (this.facingRight ? this.w : -10), this.y + 10, this.facingRight ? 10 : -10, false));
+            createParticles(this.x + (this.facingRight ? this.w : -10), this.y + 10, '#FFD700', 5, 1);
+            this.shootTimer = 20;
         }
 
-        class Bot {
-            constructor(color, id, startIndex) {
-                this.color = color;
-                this.id = id;
-                this.startIndex = startIndex;
-                this.qTable = {};
-                this.wins = 0;
-                this.reset();
+        let currentGravity = GRAVITY;
+        if (isBotActive && this.vy > 0) currentGravity = GRAVITY * 0.5; 
+        this.vy += currentGravity; 
+
+        if (this.isGhost && this.vy > 0) this.isGhost = false;
+        if (isBotActive && this.y < 0) { this.y = 0; if (this.vy < 0) this.vy = 0; }
+
+        this.x += this.vx; this.y += this.vy; this.grounded = false;
+        platforms.forEach(p => { if (!this.isGhost && rectIntersect(this, p)) resolveCollision(this, p); });
+
+        if (this.invulnTimer > 0) this.invulnTimer--;
+        checkpoints.forEach(cp => {
+            if (!cp.activated && Math.abs(this.x - cp.x) < 50) {
+                cp.activated = true; this.lastCheckpoint = { x: cp.x, y: cp.y };
+                createParticles(cp.x, cp.y, '#00FFFF', 20, 1.5); score += 100; 
             }
+        });
+        if (this.y > canvas.height + 200) this.die();
+    }
 
-            reset() {
-                // Если стартов меньше чем ботов, берем по кругу
-                const pos = startPoints[this.startIndex % startPoints.length] || {x:1, y:1};
-                this.x = pos.x;
-                this.y = pos.y;
-                this.dead = false;
-                this.finished = false;
-                this.steps = 0;
-            }
+    takeDamage(amount) {
+        if (this.invulnTimer > 0) return;
+        this.hp -= amount; this.invulnTimer = 80; 
+        createParticles(this.x, this.y, '#FF0000', 10, 1); addDamageText(this.x, this.y, amount, true);
+        triggerScreenShake(5); updateHud(); if (this.hp <= 0) this.die();
+    }
 
-            getQ(state) {
-                if (!this.qTable[state]) this.qTable[state] = { up:0, down:0, left:0, right:0 };
-                return this.qTable[state];
-            }
-
-            move() {
-                if (this.dead || this.finished) return;
-
-                const state = `${this.x},${this.y}`;
-                const actions = ['up', 'down', 'left', 'right'];
-                let action;
-
-                // Epsilon-Greedy
-                if (Math.random() < epsilon) {
-                    action = actions[Math.floor(Math.random() * actions.length)];
-                } else {
-                    const qs = this.getQ(state);
-                    const maxVal = Math.max(...Object.values(qs));
-                    // Если несколько лучших ходов - выбираем случайно из них
-                    const best = Object.keys(qs).filter(k => qs[k] === maxVal);
-                    action = best[Math.floor(Math.random() * best.length)];
-                }
-
-                let nx = this.x;
-                let ny = this.y;
-                if (action === 'up') ny--;
-                if (action === 'down') ny++;
-                if (action === 'left') nx--;
-                if (action === 'right') nx++;
-
-                let reward = -0.5; // Небольшой штраф за шаг
-                let result = 'move';
-
-                // Физика
-                if (ny < 0 || ny >= ROWS || nx < 0 || nx >= COLS || mapMatrix[ny][nx] === 1) {
-                    reward = -50; 
-                    result = 'crash';
-                    this.dead = true;
-                } else if (mapMatrix[ny][nx] === 4) { // Шипы
-                    reward = -100;
-                    result = 'trap';
-                    this.dead = true;
-                } else if (mapMatrix[ny][nx] === 3) { // Финиш
-                    reward = 500;
-                    result = 'win';
-                    this.finished = true;
-                    this.wins++;
-                }
-
-                // Обучение
-                const nextState = `${nx},${ny}`;
-                let maxNext = 0;
-                if (result === 'move') {
-                    maxNext = Math.max(...Object.values(this.getQ(nextState)));
-                }
-                const currentQs = this.getQ(state);
-                currentQs[action] = currentQs[action] + LEARNING_RATE * (reward + DISCOUNT * maxNext - currentQs[action]);
-
-                if (result === 'move' || result === 'win') {
-                    this.x = nx;
-                    this.y = ny;
-                }
-                this.steps++;
+    die() {
+        if (this.hp <= 0) setGameOver(false);
+        else {
+            this.hp -= 5; updateHud();
+            if(this.hp <= 0) setGameOver(false);
+            else {
+                this.x = this.lastCheckpoint.x; this.y = this.lastCheckpoint.y;
+                this.vy = 0; this.vx = 0; this.jumpCount = 0;
+                this.hasUsedSaviorJump = false; this.isGhost = false;
             }
         }
+    }
+    draw(ctx, camX) { drawPlayerCharacter(ctx, this.x - camX, this.y, this.w, this.h, this.facingRight, this.invulnTimer > 0, this.walkCycle, this.isShooting); }
+}
 
-        // 4 Бота
-        const bots = [
-            new Bot('#e74c3c', 'Red', 0),
-            new Bot('#2ecc71', 'Green', 1),
-            new Bot('#3498db', 'Blue', 2),
-            new Bot('#f1c40f', 'Yellow', 3)
-        ];
+class Enemy extends Entity {
+    constructor(x, y, type) {
+        super(x, y, 32, 32);
+        this.type = type; this.hp = 1; this.facingRight = false;
+        let speedMult = 1; if (difficulty === 'easy') speedMult = 0.7; if (difficulty === 'hard') speedMult = 1.3;
+        if (type === 'ZOMBIE') { this.speed = 2.2 * speedMult; this.damage = 5; }
+        else if (type === 'FLYER') { this.speed = 2.2 * speedMult; this.damage = 5; }
+        else if (type === 'SHOOTER') { this.speed = 0; this.damage = 3; this.shootTimer = 0; this.shootInterval = (difficulty === 'hard') ? 100 : 150; }
+    }
+    checkForGround(checkX) {
+        const checkY = this.y + this.h + 5;
+        for(let p of platforms) { if (checkX >= p.x && checkX <= p.x + p.w && checkY >= p.y && checkY <= p.y + p.h) return true; }
+        return false;
+    }
+    update() {
+        if (Math.abs(this.x - player.x) > canvas.width * 1.5) return;
+        if (this.x < player.x) this.facingRight = true; else this.facingRight = false;
 
-        let episode = 0;
-        let lastTime = 0;
-
-        function resetGame() {
-            parseMap();
-            bots.forEach(b => {
-                b.qTable = {};
-                b.wins = 0;
-                b.reset();
-            });
-            episode = 0;
-            epsilon = 1.0;
-            updateStats();
-        }
-
-        // Отрисовка человечка
-        function drawBot(b) {
-            const cx = b.x * TILE_SIZE + TILE_SIZE/2;
-            const cy = b.y * TILE_SIZE + TILE_SIZE/2;
-            const stepAnim = Math.sin(b.steps * 0.8) * 5;
-
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = b.color;
-            ctx.fillStyle = b.color;
-
-            // Ноги
-            ctx.beginPath();
-            ctx.moveTo(cx, cy + 5);
-            ctx.lineTo(cx - 3 + stepAnim, cy + 13);
-            ctx.moveTo(cx, cy + 5);
-            ctx.lineTo(cx + 3 - stepAnim, cy + 13);
-            ctx.stroke();
-
-            // Тело и голова
-            ctx.fillRect(cx - 3, cy - 4, 6, 10); // Тело
-            ctx.beginPath();
-            ctx.arc(cx, cy - 7, 3, 0, Math.PI*2); // Голова
-            ctx.fill();
-        }
-
-        function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Карта
-            for (let y = 0; y < ROWS; y++) {
-                for (let x = 0; x < COLS; x++) {
-                    const type = mapMatrix[y][x];
-                    const px = x * TILE_SIZE;
-                    const py = y * TILE_SIZE;
-
-                    if (type === 1) { // Стена
-                        ctx.fillStyle = '#2c3e50';
-                        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-                        ctx.strokeStyle = '#34495e';
-                        ctx.strokeRect(px, py, TILE_SIZE, TILE_SIZE);
-                    } else if (type === 3) { // Финиш
-                        ctx.fillStyle = '#000';
-                        ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-                        ctx.fillStyle = '#fff';
-                        ctx.fillRect(px, py, TILE_SIZE/2, TILE_SIZE/2);
-                        ctx.fillRect(px+TILE_SIZE/2, py+TILE_SIZE/2, TILE_SIZE/2, TILE_SIZE/2);
-                    } else if (type === 4) { // Шипы
-                        ctx.fillStyle = '#c0392b';
-                        ctx.fillRect(px + 5, py + 5, TILE_SIZE - 10, TILE_SIZE - 10);
-                    } else if (type === 2) { // Старт
-                         ctx.fillStyle = 'rgba(46, 204, 113, 0.2)';
-                         ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-                    }
+        if (this.type === 'ZOMBIE') {
+            this.vy += GRAVITY;
+            let intendedVx = 0; let distToPlayer = Math.abs(player.x - this.x);
+            if (distToPlayer < 600) { if (player.x > this.x) intendedVx = this.speed; else intendedVx = -this.speed; }
+            let lookAheadDist = 40; let nextX = this.x + (intendedVx > 0 ? lookAheadDist : -lookAheadDist) + (this.w/2);
+            if (this.grounded) {
+                if (!this.checkForGround(nextX)) {
+                    let jumpTargetX = this.x + (intendedVx > 0 ? 160 : -160); 
+                    if (this.checkForGround(jumpTargetX)) { this.vy = -11; this.grounded = false; intendedVx *= 1.5; }
+                    else { intendedVx = 0; if (distToPlayer < 100 && player.y < this.y - 50) this.vy = -10; }
                 }
             }
-
-            // Боты
-            bots.forEach(b => {
-                if (!b.dead) drawBot(b);
-            });
+            this.vx = intendedVx; this.x += this.vx; this.y += this.vy;
+            platforms.forEach(p => { if (rectIntersect(this, p)) resolveCollision(this, p); });
+        } 
+        else if (this.type === 'FLYER') {
+            let dx = player.x - this.x; let dy = player.y - this.y; let dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist > 0) { this.vx = (dx / dist) * this.speed; this.vy = (dy / dist) * this.speed; }
+            this.x += this.vx; this.y += this.vy;
         }
-
-        function updateStats() {
-            const el = document.getElementById('statsDisplay');
-            el.innerHTML = bots.map(b => 
-                `<div class="stat-box"><div style="width:10px;height:10px;background:${b.color};border-radius:50%"></div>${b.wins}</div>`
-            ).join('');
-            document.getElementById('epCount').innerText = episode;
-        }
-
-        function loop(timestamp) {
-            const rawSpeed = parseInt(speedRange.value);
-            
-            // Логика скорости: 
-            // 0-20: Медленно с задержкой (Slow Motion)
-            // 21-100: Быстро без задержки (Fast Forward)
-            
-            let shouldDraw = true;
-            let loops = 1;
-
-            if (rawSpeed <= 20) {
-                // Задержка: 20=0ms, 0=200ms
-                const delay = (20 - rawSpeed) * 10; 
-                if (timestamp - lastTime < delay) {
-                    requestAnimationFrame(loop);
-                    return;
-                }
-                lastTime = timestamp;
-            } else {
-                // Ускорение: 21=1 шаг, 100=80 шагов за кадр
-                loops = rawSpeed - 20;
-                shouldDraw = true; // Рисуем только в конце цикла
-            }
-
-            // Игровой цикл
-            for (let i = 0; i < loops; i++) {
-                let active = false;
-                bots.forEach(b => {
-                    if (!b.dead && !b.finished) {
-                        b.move();
-                        active = true;
-                    }
-                });
-
-                if (!active) {
-                    episode++;
-                    if (epsilon > 0.05) epsilon *= 0.99;
-                    bots.forEach(b => b.reset());
-                    updateStats();
-                    // Если очень быстро - отрисовку можно пропускать, но оставим для плавности
+        else if (this.type === 'SHOOTER') {
+            this.vy += GRAVITY; this.y += this.vy; platforms.forEach(p => { if (rectIntersect(this, p)) resolveCollision(this, p); });
+            if (Math.abs(player.x - this.x) < 600) {
+                this.shootTimer++; if (this.shootTimer >= this.shootInterval) {
+                    let dir = (player.x > this.x) ? 1 : -1; enemyBullets.push(new Bullet(this.x + 15, this.y + 15, dir * 6, true)); this.shootTimer = 0;
+                    createParticles(this.x + 15 + dir * 10, this.y + 15, '#FF4444', 5, 1);
                 }
             }
-
-            if (shouldDraw) draw();
-            requestAnimationFrame(loop);
         }
+        if (rectIntersect(this, player)) player.takeDamage(this.damage);
+    }
+    draw(ctx, camX) {
+        if (this.type === 'ZOMBIE') drawZombieCharacter(ctx, this.x - camX, this.y, this.w, this.h, this.facingRight);
+        else if (this.type === 'FLYER') {
+            ctx.fillStyle = '#2196F3'; ctx.beginPath(); ctx.arc(this.x - camX + 16, this.y + 16, 16, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.7)'; let f = Math.sin(Date.now()/50)*10; ctx.fillRect(this.x-camX-5, this.y+5+f, 10, 10); ctx.fillRect(this.x-camX+27, this.y+5+f, 10, 10);
+        }
+        else if (this.type === 'SHOOTER') { ctx.fillStyle = '#9C27B0'; ctx.fillRect(this.x-camX, this.y, this.w, this.h); ctx.fillStyle = '#FFF'; ctx.fillRect(this.x-camX+10, this.y+10, 12, 6); }
+    }
+}
 
-        // Старт
-        parseMap();
-        updateStats();
-        requestAnimationFrame(loop);
+class Bullet extends Entity {
+    constructor(x, y, vx, isEnemy) { super(x, y, 12, 8); this.vx = vx; this.isEnemy = isEnemy; this.life = 120; }
+    update() {
+        this.x += this.vx; this.life--; if (this.life <= 0) this.markedForDeletion = true;
+        if(Math.random() > 0.5) particles.push(new Particle(this.x, this.y + 2, this.isEnemy ? '#FF00FF' : '#00FFFF', 0.5));
+        if (this.isEnemy) { if (rectIntersect(this, player)) { player.takeDamage(3); this.markedForDeletion = true; } } 
+        else { 
+            enemies.forEach(e => { 
+                if (rectIntersect(this, e)) { 
+                    e.hp--; addDamageText(e.x, e.y, "1", false);
+                    if (e.hp <= 0) { e.markedForDeletion = true; score += 50; updateHud(); createParticles(e.x, e.y, '#4CAF50', 15, 2); triggerScreenShake(2); } 
+                    this.markedForDeletion = true; 
+                } 
+            }); 
+        }
+        platforms.forEach(p => { if (rectIntersect(this, p)) this.markedForDeletion = true; });
+    }
+    draw(ctx, camX) {
+        ctx.save(); ctx.shadowBlur = 15; ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.arc(this.x - camX + 6, this.y + 4, 5, 0, Math.PI*2); ctx.fill();
+        if(this.isEnemy) { ctx.shadowColor = '#FF00FF'; ctx.strokeStyle = '#FF00FF'; } else { ctx.shadowColor = '#00FFFF'; ctx.strokeStyle = '#00FFFF'; }
+        ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(this.x - camX + 6, this.y + 4, 7, 0, Math.PI*2); ctx.stroke(); ctx.restore();
+    }
+}
 
-    </script>
+class Particle {
+    constructor(x, y, color, speedMult = 1, decay = 0.9) {
+        this.x = x; this.y = y; this.vx = (Math.random() - 0.5) * 10 * speedMult; this.vy = (Math.random() - 0.5) * 10 * speedMult; 
+        this.life = 20 + Math.random() * 10; this.color = color; this.size = Math.random() * 4 + 2; this.decay = decay;
+    }
+    update() { this.x += this.vx; this.y += this.vy; this.life--; this.size *= this.decay; }
+    draw(ctx, camX) { ctx.fillStyle = this.color; ctx.globalAlpha = this.life / 30; ctx.fillRect(this.x - camX, this.y, this.size, this.size); ctx.globalAlpha = 1; }
+}
+
+// --- ФИЗИКА И ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+function rectIntersect(r1, r2) { return !(r2.x > r1.x + r1.w || r2.x + r2.w < r1.x || r2.y > r1.y + r1.h || r2.y + r2.h < r1.y); }
+function resolveCollision(entity, obstacle) {
+    let dx = (entity.x + entity.w / 2) - (obstacle.x + obstacle.w / 2); let dy = (entity.y + entity.h / 2) - (obstacle.y + obstacle.h / 2);
+    let width = (entity.w + obstacle.w) / 2; let height = (entity.h + obstacle.h) / 2;
+    let crossWidth = width * dy; let crossHeight = height * dx;
+    if (Math.abs(dx) <= width && Math.abs(dy) <= height) {
+        if (crossWidth > crossHeight) { if (crossWidth > -crossHeight) { entity.y = obstacle.y + obstacle.h; entity.vy = 0; } else { entity.x = obstacle.x - entity.w; entity.vx = 0; } }
+        else { if (crossWidth > -crossHeight) { entity.x = obstacle.x + obstacle.w; entity.vx = 0; } else { 
+            entity.y = obstacle.y - entity.h; entity.vy = 0; entity.grounded = true; 
+            if (entity instanceof Player) { entity.jumpCount = 0; entity.hasUsedSaviorJump = false; entity.isGhost = false; } 
+        } }
+    }
+}
+function createParticles(x, y, color, count, speedMult) { for(let i=0; i<count; i++) particles.push(new Particle(x, y, color, speedMult)); }
+
+// --- ГЕНЕРАЦИЯ УРОВНЯ ---
+function generateLevel(levelIndex) {
+    platforms = []; enemies = []; checkpoints = []; particles = []; bullets = []; enemyBullets = []; clouds = []; mountains = [];
+    let skyLen = 8000 + levelIndex * 1000; for(let i=0; i<skyLen; i+= 300) { clouds.push({x: i + Math.random()*200, y: Math.random() * 200, w: 80 + Math.random()*80}); }
+    for(let i=0; i<skyLen; i+= 500) { mountains.push({x: i, h: 200 + Math.random()*300}); }
+    const levelLength = (4000 + (levelIndex * 300)) * 2; 
+    const floorY = canvas.height - 100;
+    platforms.push({ x: -200, y: floorY, w: 800, h: 200 }); platforms.push({ x: -50, y: -2000, w: 50, h: 3000 });
+    let currentX = 600; let currentY = floorY;
+    while (currentX < levelLength) {
+        let type = 0; let r = Math.random();
+        if (levelGenStyle === 'CLASSIC') { if (r < 0.3) type = 0; else if (r < 0.5) type = 1; else if (r < 0.7) type = 2; else if (r < 0.85) type = 3; else type = 4; } 
+        else if (levelGenStyle === 'SKY') { if (r < 0.1) type = 0; else if (r < 0.3) type = 1; else if (r < 0.4) type = 2; else if (r < 0.7) type = 3; else type = 4; if (currentY > canvas.height / 2) type = 1; } 
+        else if (levelGenStyle === 'GROUND') { if (r < 0.5) type = 0; else if (r < 0.7) type = 1; else if (r < 0.9) type = 2; else if (r < 0.95) type = 4; else type = 3; }
+        if (currentY < 200) type = 2; if (currentY > floorY) type = 1; 
+        let segWidth = 200 + Math.random() * 300; let segY = currentY;
+        if (type === 0) platforms.push({ x: currentX, y: currentY, w: segWidth, h: 200 });
+        else if (type === 1) { segY = currentY - (80 + Math.random() * 40); platforms.push({ x: currentX, y: segY, w: segWidth, h: 500 }); }
+        else if (type === 2) { segY = currentY + (80 + Math.random() * 40); if (segY > floorY) segY = floorY; platforms.push({ x: currentX, y: segY, w: segWidth, h: 200 }); }
+        else if (type === 3) { let gap = 130 + Math.random() * 100; if (levelGenStyle === 'SKY') gap += 50; currentX += gap; platforms.push({ x: currentX, y: currentY, w: segWidth, h: 200 }); segY = currentY; }
+        else if (type === 4) { currentX += 100; segY = currentY - (60 + Math.random() * 100); platforms.push({ x: currentX, y: segY, w: 200, h: 40 }); segWidth = 200; }
+        let enemyChance = 0.4; if (levelGenStyle === 'GROUND') enemyChance = 0.6; 
+        if (Math.random() < enemyChance && type !== 3) {
+            let ex = currentX + segWidth/2; let ey = segY - 40; let er = Math.random();
+            if (levelGenStyle === 'SKY') { if (er < 0.3) enemies.push(new Enemy(ex, ey, 'ZOMBIE')); else if (er < 0.8) enemies.push(new Enemy(ex, ey - 150, 'FLYER')); else enemies.push(new Enemy(ex, ey, 'SHOOTER')); } 
+            else { if (er < 0.5) enemies.push(new Enemy(ex, ey, 'ZOMBIE')); else if (er < 0.8) enemies.push(new Enemy(ex, ey - 150, 'FLYER')); else enemies.push(new Enemy(ex, ey, 'SHOOTER')); }
+        }
+        if (currentX % 4500 < 400 && checkpoints.length < (levelLength / 4000) + 2) { checkpoints.push({ x: currentX + 50, y: segY - 60, w: 30, h: 60, activated: false }); }
+        currentX += segWidth; currentY = segY;
+    }
+    exitPortal = { x: currentX + 100, y: -10000, w: 60, h: 20000 };
+    platforms.push({ x: currentX, y: currentY, w: 400, h: 200 }); 
+    player = new Player(100, floorY - 100);
+}
+
+// --- УПРАВЛЕНИЕ И UI (ИСПРАВЛЕНО) ---
+function updateHud() {
+    document.getElementById('hud-lvl').innerText = currentLevel; document.getElementById('hud-kills').innerText = score;
+    let hpPercent = (player.hp / MAX_HP) * 100; document.getElementById('hp-fill').style.width = Math.max(0, hpPercent) + "%";
+    if(player.hp > 10) document.getElementById('hp-fill').style.background = '#00ff00'; else if(player.hp > 5) document.getElementById('hp-fill').style.background = '#FFA500'; else document.getElementById('hp-fill').style.background = '#FF0000';
+}
+
+function showMenu() {
+    gameState = 'MENU'; isBotActive = false; document.getElementById('bot-indicator').style.display = 'none';
+    document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
+    document.getElementById('menu-start').classList.add('active'); document.getElementById('hud').style.display = 'none';
+    if(loopId) { cancelAnimationFrame(loopId); loopId = null; }
+}
+
+// ВОССТАНОВЛЕННЫЕ ИМЕНА ФУНКЦИЙ
+function startGame(diff) {
+    difficulty = diff; currentLevel = 1; score = 0; isBotActive = false;
+    document.getElementById('bot-indicator').style.display = 'none';
+    player ? player.hp = MAX_HP : null; startLevel();
+}
+
+function startBotMode() {
+    difficulty = 'normal'; currentLevel = 1; score = 0;
+    isBotActive = true;
+    document.getElementById('bot-indicator').style.display = 'block';
+    player ? player.hp = MAX_HP : null; startLevel();
+}
+
+function startLevel() {
+    if(loopId) cancelAnimationFrame(loopId);
+    gameState = 'PLAYING';
+    document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
+    document.getElementById('hud').style.display = 'flex';
+    generateLevel(currentLevel); updateHud(); loop();
+}
+
+function showLevelSelect() {
+    const container = document.getElementById('level-buttons'); container.innerHTML = '';
+    for(let i=1; i<=MAX_LEVELS; i++) {
+        let btn = document.createElement('button'); btn.className = 'lvl-btn'; btn.innerText = i;
+        btn.onclick = () => { currentLevel = i; startLevel(); }; container.appendChild(btn);
+    }
+    document.getElementById('menu-start').classList.remove('active'); document.getElementById('menu-levels').classList.add('active');
+}
+
+function setGameOver(win) {
+    if (isBotActive && !win) { player.hp = MAX_HP; startLevel(); return; }
+    if (isBotActive && win) { nextLevel(); return; }
+    gameState = 'GAMEOVER'; document.getElementById('hud').style.display = 'none';
+    document.getElementById('menu-gameover').classList.add('active');
+    let title = document.getElementById('go-title'); let msg = document.getElementById('go-msg'); let btn = document.querySelector('#menu-gameover button');
+    if (win) { title.innerText = "LEVEL CLEAR!"; title.style.color = '#00ff00'; msg.innerText = `Счет: ${score}`; btn.innerText = "ДАЛЕЕ"; btn.onclick = nextLevel; } 
+    else { title.innerText = "YOU DIED"; title.style.color = '#ff0000'; msg.innerText = "Не сдавайся!"; btn.innerText = "РЕСТАРТ"; btn.onclick = restartLevel; }
+}
+
+function nextLevel() { if (currentLevel < MAX_LEVELS) { currentLevel++; startLevel(); } else { alert("ТЫ ЧЕМПИОН!"); showMenu(); } }
+function restartLevel() { player.hp = MAX_HP; startLevel(); }
+
+// --- ИИ БОТА ---
+function checkForGroundGeneric(checkX, checkY) {
+    for(let p of platforms) { if (checkX >= p.x && checkX <= p.x + p.w && checkY >= p.y && checkY <= p.y + p.h + 20) return true; }
+    return false;
+}
+
+function updateBot() {
+    if (!player || gameState !== 'PLAYING') return;
+    keys.left = false; keys.right = false; keys.space = false; keys.up = false;
+    keys.right = true;
+
+    let wallCheckX = player.x + player.w + 20;
+    if (checkForGroundGeneric(wallCheckX, player.y + 10)) player.jump();
+
+    let groundCheckX = player.x + player.w + 10;
+    let groundCheckY = player.y + player.h + 5;
+    let hasGround = checkForGroundGeneric(groundCheckX, groundCheckY);
+
+    if (!hasGround && player.grounded) player.jump();
+
+    if (!player.grounded) {
+        if (player.vy > 0) {
+            let safeBelow = checkForGroundGeneric(player.x + player.w/2, player.y + 400);
+            if (!safeBelow) {
+                let safeBehind = checkForGroundGeneric(player.x - 50, player.y + 200);
+                if (safeBehind) {
+                    keys.right = false; keys.left = true;
+                } else if (player.jumpCount >= player.maxJumps && !player.hasUsedSaviorJump) {
+                    if (player.y > canvas.height - 100) player.saviorJump(); 
+                }
+            }
+        }
+        if (player.jumpCount < player.maxJumps && player.vy > 0 && !checkForGroundGeneric(player.x + 50, player.y + 100)) {
+             if(!keys.left) player.jump(); 
+        }
+    }
+
+    let nearestEnemy = null; let minDst = 1000;
+    for(let e of enemies) { let dst = Math.sqrt(Math.pow(e.x - player.x, 2) + Math.pow(e.y - player.y, 2)); if (dst < minDst && e.x > player.x) { minDst = dst; nearestEnemy = e; } }
+    if (nearestEnemy && minDst < 500) { keys.space = true; if (nearestEnemy.y < player.y - 50 && player.grounded) player.jump(); }
+}
+
+function update() {
+    if (gameState !== 'PLAYING') return;
+    if (isBotActive) updateBot(); 
+    
+    if(screenShake > 0) screenShake *= 0.9;
+    if(screenShake < 0.5) screenShake = 0;
+    
+    player.update();
+    
+    let shakeX = (Math.random() - 0.5) * screenShake;
+    let shakeY = (Math.random() - 0.5) * screenShake;
+    
+    let targetCamX = player.x - canvas.width * 0.3; if (targetCamX < 0) targetCamX = 0; 
+    camera.x += (targetCamX - camera.x) * 0.1;
+    
+    let renderCamX = camera.x + shakeX;
+    let renderCamY = shakeY;
+
+    enemies.forEach(e => e.update()); bullets.forEach(b => b.update()); enemyBullets.forEach(b => b.update()); particles.forEach(p => p.update());
+    floatingTexts.forEach(t => t.update());
+    
+    enemies = enemies.filter(e => !e.markedForDeletion); bullets = bullets.filter(b => !b.markedForDeletion); enemyBullets = enemyBullets.filter(b => !b.markedForDeletion); particles = particles.filter(p => p.life > 0);
+    floatingTexts = floatingTexts.filter(t => t.life > 0);
+    
+    if (rectIntersect(player, exitPortal)) setGameOver(true);
+    
+    camera.renderX = renderCamX;
+    camera.renderY = renderCamY;
+}
+
+function draw() {
+    let grd = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    if (levelGenStyle === 'SKY') { grd.addColorStop(0, "#87CEEB"); grd.addColorStop(1, "#FFFFFF"); } 
+    else if (levelGenStyle === 'GROUND') { grd.addColorStop(0, "#1b1b1b"); grd.addColorStop(1, "#3e2723"); } 
+    else { grd.addColorStop(0, "#0f0c29"); grd.addColorStop(1, "#24243e"); }
+    ctx.fillStyle = grd; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    ctx.save();
+    ctx.translate(0, camera.renderY || 0);
+
+    ctx.fillStyle = (levelGenStyle === 'SKY') ? 'rgba(200,200,200,0.5)' : '#141414';
+    mountains.forEach(m => { let mx = m.x - camera.renderX * 0.2; if(mx > -500 && mx < canvas.width) { ctx.beginPath(); ctx.moveTo(mx, canvas.height); ctx.lineTo(mx + 300, canvas.height - m.h); ctx.lineTo(mx + 600, canvas.height); ctx.fill(); } });
+    ctx.fillStyle = 'rgba(255,255,255,0.4)'; clouds.forEach(c => { let px = c.x - camera.renderX * 0.5; if (px > -200 && px < canvas.width + 200) { ctx.beginPath(); ctx.arc(px, c.y, c.w/2, 0, Math.PI*2); ctx.fill(); } });
+    
+    if (gameState !== 'PLAYING') { ctx.restore(); return; }
+    
+    let cx = camera.renderX;
+    
+    platforms.forEach(p => { if (p.x - cx < canvas.width + 100 && p.x + p.w - cx > -100) drawGround(ctx, p.x - cx, p.y, p.w, p.h); });
+    checkpoints.forEach(cp => {
+        let cpx = cp.x - cx; if (cp.activated) { ctx.shadowBlur = 20; ctx.shadowColor = '#00FFFF'; ctx.fillStyle = '#00FFFF'; } else { ctx.fillStyle = '#555'; }
+        ctx.fillRect(cpx, cp.y, 10, 60); ctx.beginPath(); ctx.moveTo(cpx+10, cp.y); ctx.lineTo(cpx+40, cp.y+15); ctx.lineTo(cpx+10, cp.y+30); ctx.fill(); ctx.shadowBlur = 0;
+    });
+    let ex = exitPortal.x - cx; 
+    ctx.shadowBlur = 30; ctx.shadowColor = '#00d2ff'; ctx.fillStyle = 'rgba(0, 210, 255, 0.5)'; ctx.fillRect(ex, 0, exitPortal.w, canvas.height); 
+    ctx.fillStyle = '#fff'; ctx.fillRect(ex + 25, 0, 10, canvas.height); ctx.shadowBlur = 0;
+    
+    player.draw(ctx, cx); enemies.forEach(e => e.draw(ctx, cx)); bullets.forEach(b => b.draw(ctx, cx)); enemyBullets.forEach(b => b.draw(ctx, cx)); particles.forEach(p => p.draw(ctx, cx));
+    floatingTexts.forEach(t => t.draw(ctx, cx));
+    
+    ctx.restore();
+}
+
+function loop() { if (gameState === 'PLAYING') { update(); draw(); loopId = requestAnimationFrame(loop); } }
+
+window.addEventListener('keydown', e => { if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true; if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true; if (e.code === 'Space') keys.space = true; if (e.code === 'ArrowUp' || e.code === 'KeyW') { if (gameState === 'PLAYING' && player) player.jump(); } });
+window.addEventListener('keyup', e => { if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false; if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false; if (e.code === 'Space') keys.space = false; });
+
+function setupTouch(id, key) {
+    const btn = document.getElementById(id);
+    btn.addEventListener('touchstart', (e) => { e.preventDefault(); if (key === 'jump') { if (gameState === 'PLAYING' && player) player.jump(); keys.up = true; } else { keys[key] = true; } });
+    btn.addEventListener('touchend', (e) => { e.preventDefault(); if (key === 'jump') keys.up = false; else keys[key] = false; });
+}
+setupTouch('btn-left', 'left'); setupTouch('btn-right', 'right'); setupTouch('btn-shoot', 'space'); setupTouch('btn-jump', 'jump');
+
+showMenu();
+</script>
 </body>
 </html>

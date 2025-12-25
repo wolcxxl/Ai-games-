@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Зомби Шутер: Финал</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Courier New', monospace; user-select: none; background: #000; touch-action: none; }
+        
+        /* UI Слой (сверху всего) */
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 50;
+        }
+
+        #stats {
+            position: absolute; top: 15px; left: 15px; color: #fff;
+            font-size: 18px; text-shadow: 2px 2px 0px #000;
+            background: rgba(0,0,0,0.6); padding: 10px; border: 2px solid #555; 
+            border-radius: 8px;
+        }
+        .stat-label { font-weight: bold; color: #FFD700; }
+        #hp { color: #32CD32; }
+        .low-hp { color: #FF0000; animation: pulse 0.5s infinite alternate; }
+        #ammo { color: #00BFFF; }
+
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; width: 4px; height: 4px;
+            background: #00ff00; border: 1px solid black;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 4px #00ff00;
+        }
+
+        /* Меню паузы */
+        #blocker {
+            position: absolute; width: 100%; height: 100%; background: rgba(0,0,0,0.85);
+            display: flex; justify-content: center; align-items: center; color: white; 
+            flex-direction: column; z-index: 100; pointer-events: auto;
+        }
+        #instructions { font-size: 32px; cursor: pointer; text-align: center; color: #ffcc00; text-shadow: 2px 2px 0 #550000; }
+        .warning { color: orange; font-size: 18px; margin-top: 10px; max-width: 80%; text-align: center; }
+
+        /* --- МОБИЛЬНОЕ УПРАВЛЕНИЕ --- */
+        #mobile-controls {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 40;
+        }
+
+        /* Зона для вращения камеры (правая половина) */
+        #touch-look-zone {
+            position: absolute; top: 0; right: 0; width: 50%; height: 100%;
+            pointer-events: auto; z-index: 10; 
+        }
+
+        /* Джойстик */
+        #joystick-zone {
+            position: absolute; bottom: 50px; left: 50px; width: 120px; height: 120px;
+            background: rgba(255, 255, 255, 0.1); border-radius: 50%;
+            pointer-events: auto; border: 2px solid rgba(255,255,255,0.3); z-index: 20;
+        }
+        #joystick-knob {
+            position: absolute; top: 50%; left: 50%; width: 50px; height: 50px;
+            background: rgba(255, 200, 0, 0.8); border-radius: 50%;
+            transform: translate(-50%, -50%); pointer-events: none;
+        }
+
+        /* Кнопки действий (ОЧЕНЬ ВЫСОКИЙ Z-INDEX) */
+        .control-btn {
+            position: absolute; pointer-events: auto; z-index: 60; 
+            background: rgba(255, 255, 255, 0.2); border: 2px solid rgba(255,255,255,0.5);
+            border-radius: 50%; display: flex; justify-content: center; align-items: center;
+            font-size: 30px; color: white; user-select: none;
+            backdrop-filter: blur(4px); box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .control-btn:active { background: rgba(255, 200, 0, 0.6); transform: scale(0.95); }
+
+        #fire-btn { bottom: 60px; right: 40px; width: 85px; height: 85px; background: rgba(200, 0, 0, 0.4); font-size: 40px; }
+        #jump-btn { bottom: 170px; right: 30px; width: 65px; height: 65px; font-size: 25px; }
+        #reload-btn { bottom: 170px; right: 120px; width: 65px; height: 65px; font-size: 20px; }
+
+        @media (hover: none) and (pointer: coarse) {
+            #mobile-controls { display: block; }
+            #instructions { font-size: 24px; }
+        }
+        @keyframes pulse { from { opacity: 0.5; } to { opacity: 1; } }
+    </style>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="ui-layer">
+        <div id="stats">
+            ❤️ <span id="hp">100</span> | 
+            🔫 <span id="ammo">200</span> <span id="reloading" style="display:none; color:yellow;">(R)</span> | 
+            💀 <span id="score">0</span>
+        </div>
+        <div id="crosshair"></div>
+    </div>
+    
+    <div id="touch-look-zone"></div>
+
+    <div id="mobile-controls">
+        <div id="joystick-zone"><div id="joystick-knob"></div></div>
+        <div id="fire-btn" class="control-btn">🔥</div>
+        <div id="jump-btn" class="control-btn">🦘</div>
+        <div id="reload-btn" class="control-btn">🔄</div>
+    </div>
+
+    <div id="blocker">
+        <div id="instructions">
+            <h1>ЗОМБИ ШУТЕР</h1>
+            <p>НАЖМИ ДЛЯ СТАРТА</p>
+            <p class="warning">A/D инвертированы!</p>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+
+        // --- ГЛОБАЛЬНАЯ ОПТИМИЗАЦИЯ (GEOMETRY REUSE) ---
+        const BOX_GEO_01_01_04 = new THREE.BoxGeometry(0.1, 0.1, 0.4); 
+        const BOX_GEO_05_07_03 = new THREE.BoxGeometry(0.5, 0.7, 0.3); 
+        const BOX_GEO_04_04_04 = new THREE.BoxGeometry(0.4, 0.4, 0.4); 
+        const BOX_GEO_02_07_02 = new THREE.BoxGeometry(0.2, 0.7, 0.2); 
+        const BOX_GEO_02_06_02 = new THREE.BoxGeometry(0.2, 0.6, 0.2); 
+        
+        BOX_GEO_02_07_02.translate(0, -0.35, 0); 
+        BOX_GEO_02_06_02.translate(0, -0.3, 0);
+
+        // --- КОНФИГУРАЦИЯ ---
+        const PLAYER_SPEED = 12.0;
+        const JUMP_FORCE = 14.0;
+        const GRAVITY = 30.0;
+        const PLAYER_HEIGHT = 1.7;
+        const ZOMBIE_SPEED = 4.0;
+        const ZOMBIE_CRAWL_SPEED = 0.8;
+        const PLAYER_MAX_HP = 100;
+        const ZOMBIE_BODY_HITS = 4;
+        const ZOMBIE_DAMAGE = 10;
+        const CLIP_SIZE = 200; 
+        const RELOAD_TIME = 2000;
+        const ZOMBIE_SPAWN_RATE = 2000;
+        const BULLET_SPEED = 80.0;
+        const FIRE_RATE = 100;
+        const ATTACK_RANGE = 1.5; // ИСПРАВЛЕНО: Добавлена пропущенная переменная
+
+        let hp = PLAYER_MAX_HP;
+        let ammo = CLIP_SIZE;
+        let score = 0;
+        let isReloading = false;
+        let zombies = [];
+        let allZombieParts = []; 
+        let shootables = []; 
+        let obstacles = []; 
+        let bullets = []; 
+
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let canJump = false;
+        let velocityY = 0;
+        let isMouseDown = false;
+        let lastShotTime = 0;
+        let prevTime = performance.now();
+        let gameOver = false;
+        
+        let isMobile = ('ontouchstart' in window);
+        let touchLookLastX = 0;
+        let touchLookLastY = 0;
+        let joystickVector = { x: 0, y: 0 }; 
+
+        // --- АУДИО ---
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContext();
+
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            const now = audioCtx.currentTime;
+
+            if (type === 'shoot') {
+                osc.type = 'sawtooth'; osc.frequency.setValueAtTime(800, now);
+                osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
+                gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now); osc.stop(now + 0.15);
+            } else if (type === 'reload') {
+                osc.type = 'square'; osc.frequency.setValueAtTime(400, now);
+                gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now); osc.stop(now + 0.1);
+            }
+        }
+
+        // --- ТЕКСТУРЫ И МАТЕРИАЛЫ ---
+        function createPixelFaceTexture(type) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 16; canvas.height = 16; 
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = type === 'zombie' ? '#4a6b3a' : '#d4a88c';
+            ctx.fillRect(0, 0, 16, 16);
+            ctx.fillStyle = type === 'zombie' ? '#ff0000' : '#ffffff';
+            ctx.fillRect(3, 5, 3, 3); ctx.fillRect(10, 5, 3, 3);
+            if(type === 'zombie') {
+                 ctx.fillStyle = '#ffffff';
+                 ctx.fillRect(5, 11, 1, 2); ctx.fillRect(8, 11, 1, 2); ctx.fillRect(11, 11, 1, 2);
+            }
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.magFilter = THREE.NearestFilter;
+            return texture;
+        }
+        const zombieFaceTex = createPixelFaceTexture('zombie');
+        const zombieBodyMat = new THREE.MeshStandardMaterial({ color: 0x3A5F4B, roughness: 0.8 });
+        const zombieSkinMat = new THREE.MeshStandardMaterial({ map: zombieFaceTex, roughness: 0.9 });
+        const clothesMat = new THREE.MeshStandardMaterial({color: 0x334455});
+        const bulletMat = new THREE.MeshBasicMaterial({color: 0xffff00});
+
+        // --- СЦЕНА ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); 
+        scene.fog = new THREE.Fog(0x87CEEB, 10, 80);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.y = PLAYER_HEIGHT; 
+        camera.rotation.order = 'YXZ'; 
+
+        const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true; 
+        renderer.shadowMap.type = THREE.BasicShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xaaaaaa, 0.7);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(20, 50, 10);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 1024; 
+        dirLight.shadow.mapSize.height = 1024;
+        scene.add(dirLight);
+
+        // Пол
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x556655, roughness: 0.8 }));
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+        shootables.push(floor);
+
+        // --- МАШИНЫ ---
+        const carBodyMat = new THREE.MeshStandardMaterial({ color: 0xcc3333, roughness: 0.2 });
+        const carWheelMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+        const carGlassMat = new THREE.MeshStandardMaterial({ color: 0x88ccff });
+        
+        function createVoxelCar(x, z) {
+            const carGroup = new THREE.Group();
+            const chassis = new THREE.Mesh(new THREE.BoxGeometry(2, 1.8, 4), carBodyMat);
+            chassis.position.y = 0.9; chassis.castShadow = true; chassis.receiveShadow = true;
+            carGroup.add(chassis); shootables.push(chassis);
+
+            const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.5, 2), carGlassMat);
+            cabin.position.set(0, 2.55, -0.5); cabin.castShadow = true;
+            carGroup.add(cabin); shootables.push(cabin);
+
+            carGroup.position.set(x, 0, z);
+            if (Math.random() > 0.5) carGroup.rotation.y = Math.PI / 2;
+            scene.add(carGroup);
+
+            const box = new THREE.Box3().setFromObject(carGroup);
+            obstacles.push({ minX: box.min.x, maxX: box.max.x, minZ: box.min.z, maxZ: box.max.z, maxY: box.max.y });
+        }
+
+        for (let i = 0; i < 20; i++) {
+            const x = (Math.random() - 0.5) * 80; const z = (Math.random() - 0.5) * 80;
+            if (Math.abs(x) > 5 || Math.abs(z) > 5) createVoxelCar(x, z);
+        }
+
+        // --- ОРУЖИЕ ---
+        const playerHandGroup = new THREE.Group();
+        camera.add(playerHandGroup);
+        const gun = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.2, 0.6), new THREE.MeshStandardMaterial({ color: 0x222222 }));
+        gun.position.set(0.3, -0.3, -0.5); playerHandGroup.add(gun);
+        
+        const flash = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.4), new THREE.MeshBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0 }));
+        flash.position.set(0.3, -0.2, -0.9); flash.visible = false; playerHandGroup.add(flash);
+        
+        const rArm = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.6), clothesMat);
+        rArm.position.set(0.3, -0.3, -0.2); playerHandGroup.add(rArm);
+
+        // --- УПРАВЛЕНИЕ ---
+        const controls = new PointerLockControls(camera, document.body);
+        const blocker = document.getElementById('blocker');
+        const instructions = document.getElementById('instructions');
+
+        // ПОЛНОЭКРАННЫЙ РЕЖИМ
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.log(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+                });
+            }
+        }
+
+        instructions.addEventListener('click', () => { 
+            toggleFullScreen();
+            if (!isMobile) {
+                try { controls.lock(); } catch(e) { console.log(e); }
+            } else {
+                blocker.style.display = 'none';
+            }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+        });
+        
+        controls.addEventListener('lock', () => blocker.style.display = 'none');
+        controls.addEventListener('unlock', () => { if(!gameOver && !isMobile) blocker.style.display = 'flex'; });
+
+        // КЛАВИАТУРА
+        const onKeyDown = (e) => {
+            switch (e.code) { 
+                case 'KeyW': moveForward=true; break; case 'KeyA': moveLeft=true; break; 
+                case 'KeyS': moveBackward=true; break; case 'KeyD': moveRight=true; break; 
+                case 'Space': if(canJump) { velocityY = JUMP_FORCE; canJump = false; } break;
+                case 'KeyR': reload(); break; 
+            }
+        };
+        const onKeyUp = (e) => {
+            switch (e.code) { case 'KeyW': moveForward=false; break; case 'KeyA': moveLeft=false; break; case 'KeyS': moveBackward=false; break; case 'KeyD': moveRight=false; break; }
+        };
+        document.addEventListener('keydown', onKeyDown); document.addEventListener('keyup', onKeyUp);
+        document.addEventListener('mousedown', (e) => { if ((controls.isLocked || isMobile) && e.button === 0) isMouseDown = true; });
+        document.addEventListener('mouseup', () => { isMouseDown = false; });
+
+        // --- МОБИЛЬНОЕ УПРАВЛЕНИЕ ---
+        if (isMobile) {
+            // ДЖОЙСТИК
+            const joystickZone = document.getElementById('joystick-zone');
+            const joystickKnob = document.getElementById('joystick-knob');
+            const joystickCenter = { x: 60, y: 60 }; 
+
+            joystickZone.addEventListener('touchstart', (e) => {
+                e.preventDefault(); handleJoystick(e.changedTouches[0]);
+            }, {passive: false});
+            joystickZone.addEventListener('touchmove', (e) => {
+                e.preventDefault(); handleJoystick(e.changedTouches[0]);
+            }, {passive: false});
+            joystickZone.addEventListener('touchend', (e) => {
+                e.preventDefault(); joystickKnob.style.transform = `translate(-50%, -50%)`; joystickVector = { x: 0, y: 0 }; 
+            }, {passive: false});
+
+            function handleJoystick(touch) {
+                const rect = joystickZone.getBoundingClientRect();
+                const x = touch.clientX - rect.left; const y = touch.clientY - rect.top;
+                let dx = x - joystickCenter.x; let dy = y - joystickCenter.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist > 40) { dx = (dx / dist) * 40; dy = (dy / dist) * 40; }
+                joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+                joystickVector.x = dx / 40; joystickVector.y = dy / 40;
+            }
+
+            // ВРАЩЕНИЕ КАМЕРЫ (Событие на зоне)
+            const touchLookZone = document.getElementById('touch-look-zone');
+            touchLookZone.addEventListener('touchstart', (e) => {
+                touchLookLastX = e.changedTouches[0].clientX; touchLookLastY = e.changedTouches[0].clientY;
+            }, {passive: false});
+            touchLookZone.addEventListener('touchmove', (e) => {
+                e.preventDefault(); // ВАЖНО: Предотвращает скролл
+                const touch = e.changedTouches[0];
+                const deltaX = touch.clientX - touchLookLastX; const deltaY = touch.clientY - touchLookLastY;
+                camera.rotation.y -= deltaX * 0.005; 
+                camera.rotation.x -= deltaY * 0.005;
+                camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
+                touchLookLastX = touch.clientX; touchLookLastY = touch.clientY;
+            }, {passive: false});
+
+            // КНОПКИ (С stopPropagation чтобы не дергать камеру)
+            const setupBtn = (id, startFn, endFn) => {
+                const el = document.getElementById(id);
+                el.addEventListener('touchstart', (e) => { 
+                    e.preventDefault(); e.stopPropagation(); 
+                    startFn(); 
+                }, {passive: false});
+                if(endFn) el.addEventListener('touchend', (e) => { 
+                    e.preventDefault(); e.stopPropagation(); 
+                    endFn(); 
+                }, {passive: false});
+            };
+
+            setupBtn('fire-btn', () => isMouseDown = true, () => isMouseDown = false);
+            setupBtn('jump-btn', () => { if(canJump) { velocityY = JUMP_FORCE; canJump = false; } });
+            setupBtn('reload-btn', () => reload());
+        }
+
+        // --- ЛОГИКА ---
+        function reload() {
+            if (isReloading || ammo === CLIP_SIZE) return;
+            playSound('reload'); isReloading = true;
+            document.getElementById('reloading').style.display = 'inline';
+            playerHandGroup.rotation.x = -0.5;
+            setTimeout(() => { playerHandGroup.rotation.x = 0; }, RELOAD_TIME);
+            setTimeout(() => { ammo = CLIP_SIZE; isReloading = false; updateUI(); document.getElementById('reloading').style.display = 'none'; }, RELOAD_TIME);
+        }
+
+        function shoot() {
+            if (isReloading) return;
+            if (ammo <= 0) { reload(); return; }
+            ammo--; updateUI(); playSound('shoot');
+            flash.visible = true; flash.rotation.z = Math.random() * Math.PI;
+            setTimeout(() => { flash.visible = false; }, 50);
+            playerHandGroup.position.z += 0.2; playerHandGroup.rotation.x += 0.2;
+            camera.rotation.x += 0.015; 
+            setTimeout(() => { playerHandGroup.position.z -= 0.2; playerHandGroup.rotation.x -= 0.2; camera.rotation.x -= 0.015; }, 80);
+            createBullet();
+        }
+
+        function createBullet() {
+            const bullet = new THREE.Mesh(BOX_GEO_01_01_04, bulletMat);
+            const gunTip = new THREE.Vector3(0.3, -0.2, -0.8).applyMatrix4(camera.matrixWorld);
+            bullet.position.copy(gunTip);
+            
+            const aimRay = new THREE.Raycaster();
+            aimRay.setFromCamera(new THREE.Vector2(0, 0), camera);
+            const hits = aimRay.intersectObjects(shootables);
+            
+            let target = hits.length > 0 ? hits[0].point : new THREE.Vector3().copy(camera.position).addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 100);
+            const dir = new THREE.Vector3().subVectors(target, gunTip).normalize();
+            bullet.lookAt(target);
+            scene.add(bullet);
+            bullets.push({ mesh: bullet, dir: dir, life: 2.0 });
+        }
+
+        function updateBullets(delta) {
+            const ray = new THREE.Raycaster();
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const b = bullets[i]; b.life -= delta;
+                const oldPos = b.mesh.position.clone();
+                b.mesh.position.addScaledVector(b.dir, BULLET_SPEED * delta);
+                if (b.life <= 0) { scene.remove(b.mesh); bullets.splice(i, 1); continue; }
+                
+                const dist = oldPos.distanceTo(b.mesh.position);
+                ray.set(oldPos, b.dir);
+                const hits = ray.intersectObjects(allZombieParts);
+                if (hits.length > 0 && hits[0].distance <= dist) {
+                    const hit = hits[0];
+                    const parentRig = hit.object.userData.parentRig;
+                    if (parentRig) {
+                        const zombie = zombies.find(z => z.rig === parentRig);
+                        if (zombie) {
+                            hit.object.material.emissive.setHex(0xff0000);
+                            setTimeout(() => hit.object.material.emissive.setHex(0x000000), 50);
+                            hitZombie(zombie, hit.object.userData.part);
+                        }
+                    }
+                    scene.remove(b.mesh); bullets.splice(i, 1);
+                }
+            }
+        }
+
+        function hitZombie(zombie, part) {
+            if (part === 'head') killZombie(zombie);
+            else { zombie.hits++; if (zombie.hits >= ZOMBIE_BODY_HITS) killZombie(zombie); }
+        }
+
+        function killZombie(zombie) {
+            allZombieParts = allZombieParts.filter(m => m.userData.parentRig !== zombie.rig);
+            scene.remove(zombie.rig);
+            zombies = zombies.filter(z => z !== zombie);
+            score++; updateUI();
+        }
+
+        function createZombieRig(x, z) {
+            const rig = new THREE.Group(); rig.position.set(x, 0, z);
+            // Используем глобальные геометрии
+            const torso = new THREE.Mesh(BOX_GEO_05_07_03, zombieBodyMat);
+            torso.position.y = 1.05; torso.userData = { part: 'body', parentRig: rig };
+            rig.add(torso); allZombieParts.push(torso); shootables.push(torso);
+
+            const head = new THREE.Mesh(BOX_GEO_04_04_04, zombieSkinMat);
+            head.position.y = 0.55; head.userData = { part: 'head', parentRig: rig };
+            torso.add(head); allZombieParts.push(head); shootables.push(head);
+
+            const lLeg = new THREE.Mesh(BOX_GEO_02_07_02, zombieBodyMat);
+            lLeg.position.set(-0.15, -0.35, 0); lLeg.userData = { part: 'body', parentRig: rig };
+            torso.add(lLeg); allZombieParts.push(lLeg); shootables.push(lLeg);
+
+            const rLeg = new THREE.Mesh(BOX_GEO_02_07_02, zombieBodyMat);
+            rLeg.position.set(0.15, -0.35, 0); rLeg.userData = { part: 'body', parentRig: rig };
+            torso.add(rLeg); allZombieParts.push(rLeg); shootables.push(rLeg);
+            
+            // Руки
+            const lArm = new THREE.Mesh(BOX_GEO_02_06_02, zombieBodyMat);
+            lArm.position.set(-0.35, 0.25, 0); lArm.userData = { part: 'body', parentRig: rig };
+            torso.add(lArm); allZombieParts.push(lArm); shootables.push(lArm);
+
+            const rArm = new THREE.Mesh(BOX_GEO_02_06_02, zombieBodyMat);
+            rArm.position.set(0.35, 0.25, 0); rArm.userData = { part: 'body', parentRig: rig };
+            torso.add(rArm); allZombieParts.push(rArm); shootables.push(rArm);
+
+            scene.add(rig);
+            return { rig, lLeg, rLeg, lArm, rArm, hits: 0, lastAttack: 0 };
+        }
+
+        function spawnZombie() {
+            if (gameOver || zombies.length > 20) return;
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 25 + Math.random() * 20;
+            const x = Math.cos(angle) * radius + camera.position.x;
+            const z = Math.sin(angle) * radius + camera.position.z;
+            zombies.push(createZombieRig(x, z));
+        }
+        setInterval(spawnZombie, ZOMBIE_SPAWN_RATE);
+
+        function updateUI() { document.getElementById('hp').innerText = Math.max(0, hp); document.getElementById('ammo').innerText = ammo; document.getElementById('score').innerText = score; }
+        
+        function checkCollision(x, z) {
+            for(let obs of obstacles) {
+                if (x >= obs.minX - 0.3 && x <= obs.maxX + 0.3 && z >= obs.minZ - 0.3 && z <= obs.maxZ + 0.3) return obs.maxY;
+            }
+            return 0;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = performance.now(); const delta = (time - prevTime) / 1000; prevTime = time;
+            if (gameOver) return;
+
+            if (isMouseDown && (controls.isLocked || isMobile) && !isReloading && time - lastShotTime > FIRE_RATE) {
+                shoot(); lastShotTime = time;
+            }
+            updateBullets(delta);
+
+            if (controls.isLocked || isMobile) {
+                const dir = new THREE.Vector3(); camera.getWorldDirection(dir); dir.y = 0; dir.normalize();
+                const sideDir = new THREE.Vector3().crossVectors(camera.up, dir).normalize();
+                
+                const moveVec = new THREE.Vector3();
+                if (moveForward) moveVec.add(dir); if (moveBackward) moveVec.sub(dir);
+                if (moveLeft) moveVec.add(sideDir); if (moveRight) moveVec.sub(sideDir);
+                
+                if (isMobile && (joystickVector.x !== 0 || joystickVector.y !== 0)) {
+                    moveVec.addScaledVector(dir, -joystickVector.y);
+                    moveVec.addScaledVector(sideDir, -joystickVector.x);
+                }
+                moveVec.normalize().multiplyScalar(PLAYER_SPEED * delta);
+
+                const nextX = camera.position.x + moveVec.x; const nextZ = camera.position.z + moveVec.z;
+                if (checkCollision(nextX, nextZ) <= camera.position.y - PLAYER_HEIGHT + 0.5) {
+                    camera.position.x += moveVec.x; camera.position.z += moveVec.z;
+                }
+
+                velocityY -= GRAVITY * delta; camera.position.y += velocityY * delta;
+                const groundY = checkCollision(camera.position.x, camera.position.z);
+                if (camera.position.y < groundY + PLAYER_HEIGHT) {
+                    camera.position.y = groundY + PLAYER_HEIGHT; velocityY = 0; canJump = true;
+                }
+
+                if(moveVec.length() > 0 && !isReloading && canJump) {
+                    playerHandGroup.position.y = Math.sin(time / 100 * 1.2) * 0.03; 
+                    playerHandGroup.position.x = Math.cos(time / 100 * 0.6) * 0.02;  
+                }
+
+                zombies.forEach(z => {
+                    const zPos = z.rig.position; const obsH = checkCollision(zPos.x, zPos.z);
+                    let spd = ZOMBIE_SPEED; let climbing = false;
+                    if (obsH > 0.1) { spd = ZOMBIE_CRAWL_SPEED; climbing = true; if(zPos.y < obsH) zPos.y += delta; else zPos.y = obsH; }
+                    else if (zPos.y > 0) { zPos.y -= 5 * delta; if(zPos.y < 0) zPos.y = 0; }
+                    
+                    z.rig.lookAt(camera.position.x, zPos.y, camera.position.z);
+                    const dist = Math.sqrt((camera.position.x - zPos.x)**2 + (camera.position.z - zPos.z)**2);
+                    
+                    if (dist > ATTACK_RANGE || Math.abs(camera.position.y - zPos.y - PLAYER_HEIGHT) > 1.5) {
+                        z.rig.translateZ(spd * delta);
+                        const swing = Math.sin(time/1000 * (climbing?5:10)) * 0.8;
+                        z.lLeg.rotation.x = swing; z.rLeg.rotation.x = -swing;
+                        z.lArm.rotation.x = climbing ? -2 : -0.5 - swing*0.5; z.rArm.rotation.x = climbing ? -2 : -0.5 + swing*0.5;
+                    } else {
+                        if (time - z.lastAttack > 1000) {
+                            hp -= ZOMBIE_DAMAGE; updateUI(); z.lastAttack = time;
+                            if (hp <= 0) {
+                                gameOver = true; if(!isMobile) controls.unlock();
+                                blocker.innerHTML = `<h1 style="color:red">ИГРА ОКОНЧЕНА</h1><h2>Счет: ${score}</h2>`; blocker.style.display = 'flex';
+                            }
+                        }
+                    }
+                });
+            }
+            renderer.render(scene, camera);
+        }
+        window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+        animate();
+    </script>
+</body>
+</html>
