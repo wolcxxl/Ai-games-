@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Battle Arena</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div id="ui-container">
+        <div id="main-menu">
+            <h1>AI Battle Gen</h1>
+            <button onclick="startGame('training')">Старт обучения ИИ</button>
+            <button onclick="startGame('pve')">Битва против ИИ</button>
+            <div class="settings">
+                <h3>Управление генами</h3>
+                <button onclick="game.aiSystem.resetGenes()">Сброс генов</button>
+                <button onclick="game.aiSystem.rollback(-1000)">-1000 Поколений</button>
+                <button onclick="game.aiSystem.rollback(1000)">+1000 Поколений</button>
+            </div>
+            <div class="editor-controls">
+                <h3>Редактор карты</h3>
+                <p>Нажми "E" в игре чтобы менять стены</p>
+            </div>
+        </div>
+        
+        <div id="hud" style="display:none;">
+            <div id="stats">HP: <span id="hp-val">100</span> | Gun: <span id="gun-val">Melee</span></div>
+            <button onclick="stopGame()">В меню</button>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script src="weapons.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
