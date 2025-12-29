@@ -2,15 +2,14 @@
 const TILE = 40;
 const ROWS = 20;
 const COLS = 30;
-const WALL_HP = 50; // Здоровье стены
+const WALL_HP = 50;
 
-// --- ОРУЖИЕ (Добавлен rate - задержка стрельбы) ---
+// --- ОРУЖИЕ ---
 const Weapons = {
-    // rate: сколько кадров ждать между выстрелами (60 кадров = 1 сек)
     Melee:   { name: 'Melee',   dmg: 10,  ammo: Infinity, rate: 20 },
-    Pistol:  { name: 'Pistol',  dmg: 10,  ammo: 12,       rate: 15 }, // 10 урона * 5 = 50 HP стены
-    Rifle:   { name: 'Rifle',   dmg: 25,  ammo: 30,       rate: 5  }, // 25 урона * 2 = 50 HP стены
-    Bazooka: { name: 'Bazooka', dmg: 50,  ammo: 5,        rate: 60 }  // 50 урона * 1 = 50 HP стены
+    Pistol:  { name: 'Pistol',  dmg: 10,  ammo: 12,       rate: 15 },
+    Rifle:   { name: 'Rifle',   dmg: 25,  ammo: 30,       rate: 5  },
+    Bazooka: { name: 'Bazooka', dmg: 50,  ammo: 5,        rate: 60 }
 };
 
 // --- НЕЙРОСЕТЬ ---
@@ -52,30 +51,25 @@ class Entity {
         this.angle = Math.random() * 6.28;
         
         this.weapon = { ...Weapons.Melee };
-        this.shootTimer = 0; // Таймер перезарядки
+        this.shootTimer = 0;
         
         this.brain = brain || (isBot ? new Brain(9, 14, 4) : null);
         this.fitness = 0;
         
-        // Анти-кемперская система
         this.lastX = x; this.lastY = y;
         this.campTimer = 0;
     }
 
     update(game) {
         if (this.dead) return;
-        
-        // Убрали "халявный" фитнес за жизнь. Теперь нужно заслужить.
-        // this.fitness += 0.01; 
-
         if (this.shootTimer > 0) this.shootTimer--;
 
-        // Проверка на кемперство (если бот стоит на месте долго)
+        // Анти-кемпер
         if (this.isBot) {
             let distMoved = Math.hypot(this.x - this.lastX, this.y - this.lastY);
             if (distMoved < 2) {
                 this.campTimer++;
-                if (this.campTimer > 200) this.fitness -= 0.5; // Штраф за простой
+                if (this.campTimer > 200) this.fitness -= 0.5;
             } else {
                 this.campTimer = 0;
                 this.lastX = this.x; this.lastY = this.y;
@@ -85,13 +79,11 @@ class Entity {
         let mx = 0, my = 0, shoot = false;
 
         if (this.isBot) {
-            // Сенсоры
             let inputs = [];
             for (let a of [-0.8, -0.4, 0, 0.4, 0.8]) {
                 let d = 0, max = 200;
                 let dx = Math.cos(this.angle + a), dy = Math.sin(this.angle + a);
                 for (let k = 0; k < max; k += 10) {
-                    // isWall теперь проверяет > 0, так как у стен есть HP
                     if (game.isWall(this.x + dx * k, this.y + dy * k)) { d = k; break; }
                     d = max;
                 }
@@ -118,27 +110,23 @@ class Entity {
             if (game.keys['a']) mx = -3; if (game.keys['d']) mx = 3;
         }
 
-        // Физика
         if (mx || my) {
             if (!game.isWall(this.x + mx, this.y + my)) {
                 this.x += mx; this.y += my; 
-                // Маленькая награда за движение, чтобы мотивировать ходить
                 if(this.isBot) this.fitness += 0.005; 
             } else {
-                if(this.isBot) this.fitness -= 0.1; // Штраф за удар об стену
+                if(this.isBot) this.fitness -= 0.1;
             }
         }
 
-        // Стрельба (с проверкой таймера)
         if ((shoot || (game.mode === 'pve' && !this.isBot && game.mouseDown)) && this.shootTimer <= 0) {
             this.fire(game);
         }
 
-        // Подбор
         game.items.forEach(it => {
             if (it.active && Math.hypot(this.x - it.x, this.y - it.y) < this.rad + 10) {
                 it.active = false; 
-                if(this.isBot) this.fitness += 20; // Хорошая награда за подбор
+                if(this.isBot) this.fitness += 20; 
                 if (it.type.includes('pistol')) this.weapon = { ...Weapons.Pistol };
                 if (it.type.includes('rifle')) this.weapon = { ...Weapons.Rifle };
                 if (it.type.includes('bazooka')) this.weapon = { ...Weapons.Bazooka };
@@ -157,7 +145,7 @@ class Entity {
             });
         } else if (this.weapon.ammo > 0) {
             this.weapon.ammo--;
-            this.shootTimer = this.weapon.rate; // Ставим задержку
+            this.shootTimer = this.weapon.rate;
             game.projectiles.push({
                 x: this.x, y: this.y,
                 vx: Math.cos(this.angle) * 12, vy: Math.sin(this.angle) * 12,
@@ -171,11 +159,9 @@ class Entity {
         this.hp -= dmg;
         if (this.hp <= 0) {
             this.hp = 0; this.dead = true;
-            if (attacker && attacker.isBot) {
-                attacker.fitness += 50; // ОГРОМНАЯ НАГРАДА ЗА УБИЙСТВО
-            }
+            if (attacker && attacker.isBot) attacker.fitness += 50; 
         } else if (attacker && attacker.isBot) {
-            attacker.fitness += 5; // Награда за попадание
+            attacker.fitness += 5; 
         }
     }
 }
@@ -188,8 +174,8 @@ class Game {
         this.cvs.width = COLS * TILE;
         this.cvs.height = ROWS * TILE;
 
-        // Карта: 0 = пусто, >0 = HP стены
         this.mapData = new Array(ROWS * COLS).fill(0);
+        this.backupMap = new Array(ROWS * COLS).fill(0); // РЕЗЕРВНАЯ КОПИЯ ДЛЯ ВОССТАНОВЛЕНИЯ
         this.mapObjects = [];
 
         this.entities = []; this.items = []; this.projectiles = [];
@@ -228,13 +214,20 @@ class Game {
             if (d) {
                 let p = JSON.parse(d);
                 this.mapData = p.w || new Array(ROWS*COLS).fill(0);
+                this.backupMap = [...this.mapData]; // Создаем резервную копию при загрузке
                 this.mapObjects = p.o || [];
             }
         } catch (e) { console.log('Err load'); }
-        if(!this.mapData || this.mapData.length!==ROWS*COLS) this.mapData=new Array(ROWS*COLS).fill(0);
+        if(!this.mapData || this.mapData.length!==ROWS*COLS) {
+            this.mapData=new Array(ROWS*COLS).fill(0);
+            this.backupMap = [...this.mapData];
+        }
     }
 
-    saveLocal() { localStorage.setItem('battleMap', JSON.stringify({ w: this.mapData, o: this.mapObjects })); }
+    saveLocal() { 
+        // Сохраняем всегда текущее состояние, так как редактор его меняет
+        localStorage.setItem('battleMap', JSON.stringify({ w: this.mapData, o: this.mapObjects })); 
+    }
 
     clickEditor(e) {
         let r = this.cvs.getBoundingClientRect();
@@ -245,17 +238,26 @@ class Game {
         let idx = row * COLS + c;
         this.mapObjects = this.mapObjects.filter(o => !(o.c === c && o.r === row));
 
-        if (this.brush === 'wall') this.mapData[idx] = WALL_HP; // Ставим стену с полным HP
+        if (this.brush === 'wall') this.mapData[idx] = WALL_HP; 
         else if (this.brush === 'floor') this.mapData[idx] = 0;
         else {
             this.mapData[idx] = 0;
             this.mapObjects.push({ type: this.brush, c: c, r: row });
         }
+        
+        // ВАЖНО: При редактировании обновляем и резервную копию!
+        this.backupMap[idx] = this.mapData[idx];
+        
         this.saveLocal();
         this.draw();
     }
     
-    clearMap() { this.mapData.fill(0); this.mapObjects = []; this.saveLocal(); this.draw(); }
+    clearMap() { 
+        this.mapData.fill(0); 
+        this.backupMap.fill(0);
+        this.mapObjects = []; 
+        this.saveLocal(); this.draw(); 
+    }
     
     saveToFile() {
         let b = new Blob([JSON.stringify({ w: this.mapData, o: this.mapObjects })], { type: 'text/json' });
@@ -267,7 +269,9 @@ class Game {
         r.onload = e => {
             try {
                 let p = JSON.parse(e.target.result);
-                this.mapData = p.w; this.mapObjects = p.o || [];
+                this.mapData = p.w; 
+                this.backupMap = [...this.mapData]; // Обновляем резерв
+                this.mapObjects = p.o || [];
                 this.saveLocal(); this.draw();
             } catch (err) {}
         };
@@ -277,6 +281,9 @@ class Game {
     start(mode) {
         this.mode = mode;
         this.toggleUI('game');
+        // Перед стартом всегда восстанавливаем карту, чтобы начать на чистой
+        this.mapData = [...this.backupMap];
+        
         if (mode === 'training' && this.entities.length === 0) {
             this.entities = Array(10).fill(0).map(() => new Entity(0, 0, true));
             this.evolve();
@@ -292,6 +299,9 @@ class Game {
     resetGenes() { this.gen = 1; this.bestBrain = null; alert("Гены сброшены"); }
 
     resetLevel() {
+        // ВОССТАНОВЛЕНИЕ СТЕН
+        this.mapData = [...this.backupMap]; // Копируем из резерва в активную карту
+
         this.projectiles = []; this.timer = 60 * 60;
         this.items = this.mapObjects.filter(o => o.type.startsWith('item_')).map(o => ({ type: o.type, x: o.c * TILE + 20, y: o.r * TILE + 20, active: true }));
 
@@ -321,12 +331,12 @@ class Game {
         for (let i = 0; i < 10; i++) {
             let par = old.length ? (Math.random() < 0.7 ? old[0] : (old[1] || old[0])) : null;
             let br = par ? par.brain.clone() : new Brain(9, 14, 4);
-            if (par) br.mutate(0.2); // Увеличили мутацию, чтобы выбить их из круга
+            if (par) br.mutate(0.2); 
             let s = bs[i % bs.length];
             news.push(new Entity(s.c * TILE + 20, s.r * TILE + 20, true, br));
         }
         this.entities = news;
-        this.resetLevel();
+        this.resetLevel(); // Здесь тоже восстановится карта
     }
 
     update() {
@@ -347,27 +357,22 @@ class Game {
             else if (bAlive === 0) this.endGame("ПОБЕДА!");
         }
 
-        // ОБРАБОТКА ПУЛЬ И СТЕН
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             let p = this.projectiles[i];
             p.x += p.vx; p.y += p.vy;
             
-            // Попадание в стену
             if (this.isWall(p.x, p.y)) {
                 let c = Math.floor(p.x / TILE), r = Math.floor(p.y / TILE);
                 if (c >= 0 && c < COLS && r >= 0 && r < ROWS) {
                     let idx = r * COLS + c;
-                    this.mapData[idx] -= p.dmg; // Наносим урон стене
+                    this.mapData[idx] -= p.dmg; 
                     if (this.mapData[idx] <= 0) {
-                        this.mapData[idx] = 0; // Стена сломана
-                        // Если в редакторе был объект стены, удаляем его из списка объектов для красоты
-                        this.mapObjects = this.mapObjects.filter(o => !(o.c===c && o.r===r && o.type==='wall'));
+                        this.mapData[idx] = 0; 
                     }
                 }
                 this.projectiles.splice(i, 1); continue;
             }
             
-            // Попадание во врага
             let hit = false;
             this.entities.forEach(e => {
                 if (e !== p.owner && !e.dead && Math.hypot(e.x - p.x, e.y - p.y) < e.rad + 5) {
@@ -391,13 +396,11 @@ class Game {
         this.ctx.fillStyle = '#222'; this.ctx.fillRect(0, 0, this.cvs.width, this.cvs.height);
 
         for (let i = 0; i < this.mapData.length; i++) {
-            if (this.mapData[i] > 0) { // Если HP > 0, рисуем стену
+            if (this.mapData[i] > 0) {
                 let c = i % COLS, r = Math.floor(i / COLS);
-                // Цвет зависит от здоровья: чем меньше HP, тем краснее
                 let darkness = Math.floor((this.mapData[i] / WALL_HP) * 100);
                 this.ctx.fillStyle = `hsl(0, 0%, ${30 + darkness/3}%)`;
-                if(this.mapData[i] < WALL_HP) this.ctx.fillStyle = `rgb(${255 - darkness*2}, 50, 50)`; // Поврежденная
-
+                if(this.mapData[i] < WALL_HP) this.ctx.fillStyle = `rgb(${255 - darkness*2}, 50, 50)`; 
                 this.ctx.fillRect(c * TILE, r * TILE, TILE, TILE);
                 this.ctx.strokeStyle = '#333'; this.ctx.strokeRect(c * TILE, r * TILE, TILE, TILE);
             }
@@ -452,7 +455,6 @@ class Game {
 
     isWall(x, y) {
         let c = Math.floor(x / TILE), r = Math.floor(y / TILE);
-        // Если за картой ИЛИ если HP стены > 0
         return c < 0 || c >= COLS || r < 0 || r >= ROWS || this.mapData[r * COLS + c] > 0;
     }
     findNearest(me, list) {
