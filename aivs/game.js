@@ -3,7 +3,7 @@ const TILE = 40;
 const ROWS = 20;
 const COLS = 30;
 
-// --- КЛАССЫ ОРУЖИЯ ---
+// --- ОРУЖИЕ ---
 const Weapons = {
     Melee: { name: 'Melee', dmg: 10, ammo: Infinity },
     Pistol: { name: 'Pistol', dmg: 25, ammo: 12 },
@@ -11,7 +11,7 @@ const Weapons = {
     Bazooka: { name: 'Bazooka', dmg: 150, ammo: 5 }
 };
 
-// --- НЕЙРОСЕТЬ ---
+// --- МОЗГ (NEURAL NETWORK) ---
 class Brain {
     constructor(inN, hidN, outN) {
         this.inN = inN; this.hidN = hidN; this.outN = outN;
@@ -48,7 +48,7 @@ class Entity {
         this.x = x; this.y = y; this.rad = 15; this.hp = 100; this.dead = false;
         this.isBot = isBot; this.color = isBot ? '#ff4444' : '#4488ff';
         this.angle = Math.random() * 6.28;
-        this.weapon = { ...Weapons.Melee }; // Копия
+        this.weapon = { ...Weapons.Melee };
         this.brain = brain || (isBot ? new Brain(9, 14, 4) : null);
         this.fitness = 0;
         this.rays = [];
@@ -58,6 +58,9 @@ class Entity {
         if (this.dead) return;
         this.fitness += 0.05;
         this.rays = [];
+
+        // ЗАЩИТА ОТ ОШИБКИ: Если карта не загрузилась, не делаем логику
+        if (!game.mapData) return;
 
         let mx = 0, my = 0, shoot = false;
 
@@ -70,14 +73,14 @@ class Entity {
                 for (let k = 0; k < max; k += 10) {
                     let c = Math.floor((this.x + dx * k) / TILE);
                     let r = Math.floor((this.y + dy * k) / TILE);
+                    // Проверка границ и стен
                     if (c < 0 || c >= COLS || r < 0 || r >= ROWS || game.mapData[r * COLS + c]) { d = k; break; }
                     d = max;
                 }
                 inputs.push(d / max);
-                this.rays.push(d); // Для отрисовки
+                this.rays.push(d);
             }
 
-            // Данные о враге и предмете
             let ne = game.findNearest(this, game.entities.filter(e => e !== this && !e.dead));
             let ni = game.findNearest(this, game.items);
             
@@ -94,24 +97,20 @@ class Entity {
             if (out[2] > 0.5) shoot = true;
 
         } else if (game.mode === 'pve') {
-            // Управление игрока
             if (game.keys['w']) my = -3; if (game.keys['s']) my = 3;
             if (game.keys['a']) mx = -3; if (game.keys['d']) mx = 3;
         }
 
-        // Физика движения
         if (mx || my) {
             if (!game.isWall(this.x + mx, this.y + my)) {
                 this.x += mx; this.y += my; this.fitness += 0.01;
             } else {
-                this.fitness -= 0.1; // Штраф за стену
+                this.fitness -= 0.1;
             }
         }
 
-        // Атака
         if (shoot || (game.mode === 'pve' && !this.isBot && game.mouseDown)) {
             if (this.weapon.name === 'Melee') {
-                // Ближний бой
                 game.entities.forEach(e => {
                     if (e !== this && !e.dead && Math.hypot(e.x - this.x, e.y - this.y) < 45) {
                         e.takeDamage(10, this);
@@ -128,7 +127,6 @@ class Entity {
             }
         }
 
-        // Подбор предметов
         game.items.forEach(it => {
             if (it.active && Math.hypot(this.x - it.x, this.y - it.y) < this.rad + 10) {
                 it.active = false; this.fitness += 50;
@@ -158,7 +156,7 @@ class Game {
         this.cvs.height = ROWS * TILE;
 
         this.mapData = new Array(ROWS * COLS).fill(0);
-        this.mapObjects = []; // МАССИВ ВМЕСТО MAP (ДЛЯ JSON)
+        this.mapObjects = [];
 
         this.entities = []; this.items = []; this.projectiles = [];
         this.keys = {}; this.mouseDown = false;
@@ -167,7 +165,7 @@ class Game {
         this.bestBrain = null;
 
         this.setupEvents();
-        this.loadLocal(); // Загрузка карты при старте
+        this.loadLocal(); // Здесь был баг, теперь исправлен
     }
 
     setupEvents() {
@@ -190,7 +188,36 @@ class Game {
         };
     }
 
-    // --- УПРАВЛЕНИЕ КАРТОЙ (ИСПРАВЛЕНО) ---
+    // --- ИСПРАВЛЕННАЯ ЗАГРУЗКА ---
+    loadLocal() {
+        try {
+            let d = localStorage.getItem('battleMap');
+            if (d) {
+                let p = JSON.parse(d);
+                // Проверяем оба формата (старый walls, новый w)
+                this.mapData = p.w || p.walls; 
+                this.mapObjects = p.o || p.objects || [];
+
+                // Если загрузился "старый" формат Map (массив пар), сбрасываем объекты
+                if (Array.isArray(this.mapObjects) && this.mapObjects.length > 0 && Array.isArray(this.mapObjects[0])) {
+                    console.log("Старый формат обнаружен, сброс объектов");
+                    this.mapObjects = [];
+                }
+            }
+        } catch (e) { console.log('Ошибка загрузки сохранения'); }
+
+        // Если карта сломана или не загрузилась — создаем чистую
+        if (!this.mapData || this.mapData.length !== ROWS * COLS) {
+            this.mapData = new Array(ROWS * COLS).fill(0);
+            this.mapObjects = [];
+        }
+    }
+
+    saveLocal() { 
+        localStorage.setItem('battleMap', JSON.stringify({ w: this.mapData, o: this.mapObjects })); 
+    }
+
+    // --- РЕДАКТОР ---
     clickEditor(e) {
         let r = this.cvs.getBoundingClientRect();
         let c = Math.floor((e.clientX - r.left) / TILE);
@@ -198,35 +225,22 @@ class Game {
         if (c < 0 || c >= COLS || row < 0 || row >= ROWS) return;
 
         let idx = row * COLS + c;
-
-        // Удаляем старый объект на этой клетке, если есть
         this.mapObjects = this.mapObjects.filter(o => !(o.c === c && o.r === row));
 
-        if (this.brush === 'wall') {
-            this.mapData[idx] = 1;
-        } else if (this.brush === 'floor') {
+        if (this.brush === 'wall') this.mapData[idx] = 1;
+        else if (this.brush === 'floor') this.mapData[idx] = 0;
+        else {
             this.mapData[idx] = 0;
-        } else {
-            this.mapData[idx] = 0; // Пол под объектом
-            // Добавляем новый объект в массив
             this.mapObjects.push({ type: this.brush, c: c, r: row });
         }
         this.saveLocal();
         this.draw();
     }
 
-    saveLocal() { localStorage.setItem('battleMap', JSON.stringify({ w: this.mapData, o: this.mapObjects })); }
-    loadLocal() {
-        let d = localStorage.getItem('battleMap');
-        if (d) {
-            try {
-                let p = JSON.parse(d);
-                this.mapData = p.w;
-                this.mapObjects = p.o || []; // Загружаем массив
-            } catch (e) { console.error("Map Load Error"); }
-        }
+    clearMap() { 
+        this.mapData.fill(0); this.mapObjects = []; 
+        this.saveLocal(); this.draw(); 
     }
-    clearMap() { this.mapData.fill(0); this.mapObjects = []; this.saveLocal(); this.draw(); }
 
     saveToFile() {
         let b = new Blob([JSON.stringify({ w: this.mapData, o: this.mapObjects })], { type: 'text/json' });
@@ -240,22 +254,26 @@ class Game {
         r.onload = e => {
             try {
                 let p = JSON.parse(e.target.result);
-                this.mapData = p.w;
-                this.mapObjects = p.o;
-                this.saveLocal(); this.draw();
+                this.mapData = p.w || p.walls;
+                this.mapObjects = p.o || p.objects || [];
+                // Проверка на целостность
+                if (!this.mapData || this.mapData.length !== ROWS*COLS) throw new Error();
+                
+                this.saveLocal(); 
+                this.draw();
                 alert("Карта загружена!");
-            } catch (err) { alert("Ошибка файла"); }
+            } catch (err) { alert("Ошибка: неверный формат файла"); }
         };
         r.readAsText(f);
     }
 
-    // --- ЛОГИКА ИГРЫ ---
+    // --- ЛОГИКА ---
     start(mode) {
         this.mode = mode;
         this.toggleUI('game');
         if (mode === 'training' && this.entities.length === 0) {
-            this.entities = Array(10).fill(0).map(() => new Entity(0, 0, true)); // Заглушка
-            this.evolve(); // Первое распределение
+            this.entities = Array(10).fill(0).map(() => new Entity(0, 0, true));
+            this.evolve();
         } else {
             this.resetLevel();
         }
@@ -265,7 +283,7 @@ class Game {
 
     stop() { this.running = false; this.toggleUI('menu'); }
     restartLevel() { this.resetLevel(); this.toggleUI('game'); this.running = true; this.loop(); }
-    resetGenes() { this.gen=1; this.bestBrain=null; alert("Гены сброшены"); }
+    resetGenes() { this.gen = 1; this.bestBrain = null; alert("Гены сброшены"); }
 
     resetLevel() {
         this.projectiles = []; this.timer = 60 * 60;
@@ -283,7 +301,6 @@ class Game {
                 this.entities.push(new Entity(s.c * TILE + 20, s.r * TILE + 20, true, this.bestBrain ? this.bestBrain.clone() : null));
             }
         }
-        // Training reset is handled in evolve
     }
 
     evolve() {
@@ -292,7 +309,7 @@ class Game {
         this.gen++;
 
         let bs = this.mapObjects.filter(o => o.type === 'spawn_bot');
-        if(bs.length===0) bs.push({c:5,r:5});
+        if (bs.length === 0) bs.push({ c: 5, r: 5 });
 
         let news = [];
         for (let i = 0; i < 10; i++) {
@@ -307,14 +324,12 @@ class Game {
     }
 
     update() {
-        // Спавн бонусов
-        if(Math.random()<0.005) {
-             let r=Math.floor(Math.random()*ROWS), c=Math.floor(Math.random()*COLS);
-             if(!this.mapData[r*COLS+c]) 
-                 this.items.push({type:['item_medkit','item_pistol'][Math.floor(Math.random()*2)], x:c*TILE+20, y:r*TILE+20, active:true});
+        if (Math.random() < 0.005) {
+            let r = Math.floor(Math.random() * ROWS), c = Math.floor(Math.random() * COLS);
+            if (!this.mapData[r * COLS + c])
+                this.items.push({ type: ['item_medkit', 'item_pistol'][Math.floor(Math.random() * 2)], x: c * TILE + 20, y: r * TILE + 20, active: true });
         }
 
-        // Логика режима
         if (this.mode === 'training') {
             this.timer--;
             let alive = this.entities.filter(e => !e.dead).length;
@@ -326,7 +341,6 @@ class Game {
             else if (bAlive === 0) this.endGame("ПОБЕДА!");
         }
 
-        // Пули
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             let p = this.projectiles[i];
             p.x += p.vx; p.y += p.vy;
@@ -334,8 +348,8 @@ class Game {
                 if (p.type === 'Bazooka') {
                     let c = Math.floor(p.x / TILE), r = Math.floor(p.y / TILE);
                     if (c >= 0 && c < COLS && r >= 0 && r < ROWS) {
-                        this.mapData[r * COLS + c] = 0; // Разрушение
-                        this.mapObjects = this.mapObjects.filter(o=>!(o.c===c && o.r===r));
+                        this.mapData[r * COLS + c] = 0;
+                        this.mapObjects = this.mapObjects.filter(o => !(o.c === c && o.r === r));
                     }
                 }
                 this.projectiles.splice(i, 1); continue;
@@ -350,21 +364,18 @@ class Game {
         }
 
         this.entities.forEach(e => e.update(this));
-        
-        // UI
-        if(this.mode==='pve' && this.entities[0]) {
+
+        if (this.mode === 'pve' && this.entities[0]) {
             document.getElementById('hp-val').innerText = Math.floor(this.entities[0].hp);
             document.getElementById('gun-val').innerText = this.entities[0].weapon.name;
         }
-        document.getElementById('enemies-val').innerText = this.entities.filter(e=>e.isBot && !e.dead).length;
+        document.getElementById('enemies-val').innerText = this.entities.filter(e => e.isBot && !e.dead).length;
         document.getElementById('gen-val').innerText = this.gen;
     }
 
     draw() {
-        // Фон
         this.ctx.fillStyle = '#222'; this.ctx.fillRect(0, 0, this.cvs.width, this.cvs.height);
 
-        // Стены
         for (let i = 0; i < this.mapData.length; i++) {
             if (this.mapData[i]) {
                 let c = i % COLS, r = Math.floor(i / COLS);
@@ -373,19 +384,18 @@ class Game {
             }
         }
 
-        // Предметы
         this.items.forEach(i => {
             if (!i.active) return;
             this.ctx.fillStyle = i.type.includes('medkit') ? '#0f0' : '#fd0';
             this.ctx.beginPath(); this.ctx.arc(i.x, i.y, 8, 0, 7); this.ctx.fill();
-            this.ctx.fillStyle='black'; this.ctx.font='10px Arial'; this.ctx.textAlign='center';
-            this.ctx.fillText(i.type.includes('pistol')?'🔫':i.type.includes('rifle')?'🖊️':i.type.includes('bazooka')?'🚀':'✚', i.x, i.y+4);
+            this.ctx.fillStyle = 'black'; this.ctx.font = '10px Arial'; this.ctx.textAlign = 'center';
+            let ic = i.type.includes('pistol') ? '🔫' : i.type.includes('rifle') ? '🖊️' : i.type.includes('bazooka') ? '🚀' : '✚';
+            this.ctx.fillText(ic, i.x, i.y + 4);
         });
 
-        // Сущности
         this.entities.forEach(e => {
             if (e.dead) return;
-            if (this.mode === 'training' && this.speed === 1) { // Лучи
+            if (this.mode === 'training' && this.speed === 1) {
                 this.ctx.strokeStyle = 'rgba(255,255,0,0.2)';
                 e.rays.forEach((dist, idx) => {
                     let a = e.angle + [-0.8, -0.4, 0, 0.4, 0.8][idx];
@@ -398,26 +408,23 @@ class Game {
             this.ctx.fillStyle = e.color; this.ctx.beginPath(); this.ctx.arc(0, 0, e.rad, 0, 7); this.ctx.fill();
             this.ctx.fillStyle = 'white'; this.ctx.fillRect(0, -3, 22, 6);
             this.ctx.restore();
-            // HP Bar
             this.ctx.fillStyle = 'red'; this.ctx.fillRect(e.x - 12, e.y - 25, 24, 4);
             this.ctx.fillStyle = '#0f0'; this.ctx.fillRect(e.x - 12, e.y - 25, 24 * (e.hp / 100), 4);
         });
 
-        // Пули
         this.ctx.fillStyle = '#ff0';
         this.projectiles.forEach(p => { this.ctx.beginPath(); this.ctx.arc(p.x, p.y, 4, 0, 7); this.ctx.fill(); });
 
-        // Редактор
         if (this.editorOpen) {
             this.ctx.strokeStyle = 'rgba(255,255,255,0.1)';
             for (let r = 0; r <= ROWS; r++) { this.ctx.beginPath(); this.ctx.moveTo(0, r * TILE); this.ctx.lineTo(COLS * TILE, r * TILE); this.ctx.stroke(); }
             for (let c = 0; c <= COLS; c++) { this.ctx.beginPath(); this.ctx.moveTo(c * TILE, 0); this.ctx.lineTo(c * TILE, ROWS * TILE); this.ctx.stroke(); }
             this.mapObjects.forEach(o => {
-                this.ctx.fillStyle = 'white'; this.ctx.font = '16px Arial'; this.ctx.textAlign='center';
+                this.ctx.fillStyle = 'white'; this.ctx.font = '16px Arial'; this.ctx.textAlign = 'center';
                 let txt = '?';
-                if(o.type.includes('spawn')) txt = o.type.includes('bot')?'B':'P';
-                else if(o.type.includes('pistol')) txt='🔫';
-                else if(o.type.includes('medkit')) txt='✚';
+                if (o.type.includes('spawn')) txt = o.type.includes('bot') ? 'B' : 'P';
+                else if (o.type.includes('pistol')) txt = '🔫';
+                else if (o.type.includes('medkit')) txt = '✚';
                 this.ctx.fillText(txt, o.c * TILE + 20, o.r * TILE + 25);
             });
         }
@@ -464,7 +471,7 @@ class Game {
         if (this.editorOpen) { this.running = false; this.draw(); }
         else if (this.mode !== 'menu') { this.running = true; this.loop(); }
     }
-    setBrush(b) { this.brush = b; document.querySelectorAll('.tool-btn').forEach(x=>x.classList.remove('active')); event.target.classList.add('active'); }
+    setBrush(b) { this.brush = b; document.querySelectorAll('.tool-btn').forEach(x => x.classList.remove('active')); event.target.classList.add('active'); }
 }
 
 const game = new Game();
