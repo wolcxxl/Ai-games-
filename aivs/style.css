@@ -1,122 +1,68 @@
 body {
     margin: 0;
-    background: #1a1a1a; /* Чуть темнее фона игры, чтобы выделить карту */
+    background: #1a1a1a;
     color: white;
     font-family: Arial, sans-serif;
     overflow: hidden;
-
-    /* ЦЕНТРИРОВАНИЕ */
     display: flex;
     justify-content: center;
     align-items: center;
     min-height: 100vh;
 }
 
-/* Контейнер интерфейса (поверх всего) */
-#ui-container {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none; /* Пропускает клики сквозь пустые места */
-    z-index: 10;
+#ui-layer {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 10;
 }
+.interactive { pointer-events: auto; }
 
-/* CANVAS - сама игра */
-canvas {
-    display: block;
-    background: #333;
-    box-shadow: 0 0 20px rgba(0,0,0,0.8); /* Тень для красоты */
-    border: 2px solid #555; /* Рамка */
-    z-index: 1;
-    /* Убираем растягивание, размеры задаст JS */
-}
-
-/* ИНТЕРФЕЙС */
-#main-menu, #hud, #editor-ui {
-    pointer-events: auto; /* Включаем клики */
-    background: rgba(0, 0, 0, 0.9);
+.panel {
+    background: rgba(0, 0, 0, 0.95);
     padding: 20px;
-    border-radius: 10px;
-    box-shadow: 0 0 10px black;
+    border-radius: 8px;
+    border: 1px solid #444;
+    box-shadow: 0 0 20px black;
 }
 
-#main-menu {
-    position: absolute;
-    top: 50%;
-    left: 50%;
+#main-menu, #victory-modal {
+    position: absolute; top: 50%; left: 50%;
     transform: translate(-50%, -50%);
-    text-align: center;
-    border: 1px solid #444;
-    min-width: 300px;
+    text-align: center; min-width: 250px;
 }
 
 #hud {
-    position: absolute;
-    top: 20px;
-    left: 20px;
+    position: absolute; top: 10px; left: 10px;
+    display: none;
 }
-
-/* РЕДАКТОР (Справа) */
-#editor-ui {
-    position: absolute;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: 220px;
-    border-radius: 0;
-    border-left: 2px solid #4CAF50; /* Зеленая полоска */
-    overflow-y: auto;
-}
-
-.palette h3 {
-    margin-top: 0;
-    text-align: center;
-    color: #ffd700;
-    border-bottom: 1px solid #444;
-    padding-bottom: 10px;
-}
-
-.tool-btn {
-    width: 100%;
-    margin: 4px 0;
-    text-align: left;
-    background: #333;
+.stat-box {
+    display: inline-block;
+    background: rgba(0,0,0,0.8);
+    padding: 5px 10px;
+    margin-right: 5px;
     border: 1px solid #555;
-    padding: 10px;
-    color: white;
-    cursor: pointer;
-    transition: 0.2s;
+    border-radius: 4px;
 }
 
+#editor-ui {
+    position: absolute; right: 0; top: 0; bottom: 0; width: 200px;
+    background: #222; border-left: 2px solid #4CAF50;
+    overflow-y: auto; display: none; padding: 10px;
+}
+
+button { cursor: pointer; width: 100%; margin: 5px 0; padding: 8px; border: none; color: white; border-radius: 4px; }
+.btn-green { background: #4CAF50; font-size: 16px; padding: 10px; }
+.btn-green:hover { background: #45a049; }
+.btn-red { background: #d32f2f; }
+.btn-blue { background: #2196F3; }
+.tool-btn { background: #333; text-align: left; border: 1px solid #555; }
 .tool-btn:hover { background: #444; }
+.tool-btn.active { background: #4CAF50; border-color: white; font-weight: bold; }
 
-.tool-btn.active {
-    background: #4CAF50;
-    border-color: #fff;
-    color: white;
-    font-weight: bold;
-}
+hr { border-color: #444; }
 
-.save-load button {
-    width: 100%;
-    margin: 5px 0;
-    padding: 8px;
-    border: none;
-    background: #2196F3;
-    color: white;
+canvas {
+    display: block;
+    background: #2b2b2b;
+    box-shadow: 0 0 30px black;
+    border: 2px solid #555;
 }
-
-/* Кнопки меню */
-#main-menu button {
-    width: 100%;
-    margin: 5px 0;
-    padding: 10px;
-    background: #4CAF50;
-    color: white;
-    border: none;
-    font-size: 16px;
-    cursor: pointer;
-}
-#main-menu button:hover { background: #45a049; }

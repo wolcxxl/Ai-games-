@@ -7,56 +7,53 @@
 </head>
 <body>
 
-    <div id="ui-container">
-        <div id="main-menu">
-            <h1>AI Battle Gen</h1>
-            <button onclick="startGame('training')">Старт обучения ИИ</button>
-            <button onclick="startGame('pve')">Битва против ИИ</button>
-            <div class="settings">
-                <h3>Управление генами</h3>
-                <button onclick="game.aiSystem.resetGenes()">Сброс генов</button>
-                <button onclick="game.aiSystem.rollback(-1000)">-1000 Поколений</button>
-                <button onclick="game.aiSystem.rollback(1000)">+1000 Поколений</button>
-            </div>
-            <div class="editor-controls">
-                <h3>Редактор карты</h3>
-                <p>Нажми "E" (англ) в игре, чтобы открыть редактор</p>
-            </div>
-        </div>
-        
-        <div id="hud" style="display:none;">
-            <div id="stats">HP: <span id="hp-val">100</span> | Gun: <span id="gun-val">Melee</span></div>
-            <button onclick="stopGame()">В меню</button>
+    <div id="ui-layer">
+        <div id="main-menu" class="panel interactive">
+            <h1 style="color:#4CAF50; margin:0;">AI BATTLE</h1>
+            <p style="color:#aaa; font-size:12px;">Режим: Раздельные файлы + Исправленный редактор</p>
+            <button onclick="game.start('training')" class="btn-green">🎓 Обучение ИИ</button>
+            <button onclick="game.start('pve')" class="btn-green">⚔️ Битва против ИИ</button>
+            <hr>
+            <button onclick="game.resetGenes()" class="btn-red">☣️ Сброс генов</button>
+            <p><small>Нажми <b>E</b> для редактора</small></p>
         </div>
 
-        <div id="editor-ui" style="display:none;">
-            <div class="palette">
-                <h3>Инструменты</h3>
-                <button onclick="game.setBrush('wall')" class="tool-btn">🧱 Стена</button>
-                <button onclick="game.setBrush('floor')" class="tool-btn">⬜ Пол (Ластик)</button>
-                <hr>
-                <button onclick="game.setBrush('spawn_player')" class="tool-btn" style="border-color: blue;">🔵 Спавн Игрока</button>
-                <button onclick="game.setBrush('spawn_bot')" class="tool-btn" style="border-color: red;">🔴 Спавн Бота</button>
-                <hr>
-                <button onclick="game.setBrush('item_medkit')" class="tool-btn">➕ Аптечка</button>
-                <button onclick="game.setBrush('item_shield')" class="tool-btn">🛡️ Щит</button>
-                <button onclick="game.setBrush('item_pistol')" class="tool-btn">🔫 Пистолет</button>
-                <button onclick="game.setBrush('item_rifle')" class="tool-btn">🔫 Автомат</button>
-                <button onclick="game.setBrush('item_bazooka')" class="tool-btn">🚀 Базука</button>
-                <hr>
-                <div class="save-load">
-                    <button onclick="game.saveMap()">💾 Сохранить</button>
-                    <button onclick="game.loadMap()">📂 Загрузить</button>
-                    <button onclick="game.clearMap()" style="background: darkred;">🗑️ Очистить</button>
-                </div>
-                <p style="text-align:center; color: #888; margin-top:10px;"><small>Нажми 'E' чтобы закрыть</small></p>
-            </div>
+        <div id="hud" class="interactive">
+            <div class="stat-box">❤️ <span id="hp-val">100</span></div>
+            <div class="stat-box">🔫 <span id="gun-val">Melee</span></div>
+            <div class="stat-box">💀 Врагов: <span id="enemies-val">0</span></div>
+            <div class="stat-box">🧬 Пок: <span id="gen-val">1</span></div>
+            <button onclick="game.stop()" class="btn-red" style="padding: 2px 8px;">Меню</button>
+        </div>
+
+        <div id="victory-modal" class="panel interactive" style="display:none;">
+            <div id="victory-title">КОНЕЦ БОЯ</div>
+            <button onclick="game.restartLevel()" class="btn-green">Рестарт</button>
+            <button onclick="game.stop()" class="btn-red">В меню</button>
+        </div>
+
+        <div id="editor-ui" class="interactive">
+            <h3 style="text-align:center; color:#ffd700;">РЕДАКТОР</h3>
+            <button onclick="game.setBrush('wall')" class="tool-btn">🧱 Стена</button>
+            <button onclick="game.setBrush('floor')" class="tool-btn">⬜ Ластик</button>
+            <hr>
+            <button onclick="game.setBrush('spawn_player')" class="tool-btn" style="border-left:4px solid blue;">🔵 Игрок</button>
+            <button onclick="game.setBrush('spawn_bot')" class="tool-btn" style="border-left:4px solid red;">🔴 Бот</button>
+            <hr>
+            <button onclick="game.setBrush('item_medkit')" class="tool-btn">➕ Аптечка</button>
+            <button onclick="game.setBrush('item_pistol')" class="tool-btn">🔫 Пистолет</button>
+            <button onclick="game.setBrush('item_rifle')" class="tool-btn">🖊️ Автомат</button>
+            <button onclick="game.setBrush('item_bazooka')" class="tool-btn">🚀 Базука</button>
+            <hr>
+            <button onclick="game.saveToFile()" class="btn-blue">💾 Скачать карту</button>
+            <button onclick="document.getElementById('file-input').click()" class="btn-blue" style="background:#555">📂 Открыть карту</button>
+            <input type="file" id="file-input" style="display:none" onchange="game.loadFromFile(this)">
+            <button onclick="game.clearMap()" class="btn-red" style="margin-top:10px;">🗑️ Очистить</button>
         </div>
     </div>
 
     <canvas id="gameCanvas"></canvas>
 
-    <script src="weapons.js"></script>
     <script src="game.js"></script>
 </body>
 </html>
