@@ -20,36 +20,37 @@
             </div>
             <div class="editor-controls">
                 <h3>Редактор карты</h3>
-                <p>Нажми "E" в игре чтобы менять стены</p>
+                <p>Нажми "E" (англ) в игре, чтобы открыть редактор</p>
             </div>
         </div>
         
         <div id="hud" style="display:none;">
             <div id="stats">HP: <span id="hp-val">100</span> | Gun: <span id="gun-val">Melee</span></div>
             <button onclick="stopGame()">В меню</button>
-            <div id="editor-ui" style="display:none;">
-    <div class="palette">
-        <h3>Инструменты</h3>
-        <button onclick="game.setBrush('wall')" class="tool-btn">🧱 Стена</button>
-        <button onclick="game.setBrush('floor')" class="tool-btn">⬜ Пол (Ластик)</button>
-        <hr>
-        <button onclick="game.setBrush('spawn_player')" class="tool-btn" style="border-color: blue;">🔵 Спавн Игрока</button>
-        <button onclick="game.setBrush('spawn_bot')" class="tool-btn" style="border-color: red;">🔴 Спавн Бота</button>
-        <hr>
-        <button onclick="game.setBrush('item_medkit')" class="tool-btn">➕ Аптечка</button>
-        <button onclick="game.setBrush('item_shield')" class="tool-btn">🛡️ Щит</button>
-        <button onclick="game.setBrush('item_pistol')" class="tool-btn">🔫 Пистолет</button>
-        <button onclick="game.setBrush('item_rifle')" class="tool-btn">🔫 Автомат</button>
-        <button onclick="game.setBrush('item_bazooka')" class="tool-btn">🚀 Базука</button>
-        <hr>
-        <div class="save-load">
-            <button onclick="game.saveMap()">💾 Сохранить</button>
-            <button onclick="game.loadMap()">📂 Загрузить</button>
-            <button onclick="game.clearMap()" style="background: darkred;">🗑️ Очистить</button>
         </div>
-        <p><small>Нажми 'E' чтобы закрыть</small></p>
-    </div>
-</div>
+
+        <div id="editor-ui" style="display:none;">
+            <div class="palette">
+                <h3>Инструменты</h3>
+                <button onclick="game.setBrush('wall')" class="tool-btn">🧱 Стена</button>
+                <button onclick="game.setBrush('floor')" class="tool-btn">⬜ Пол (Ластик)</button>
+                <hr>
+                <button onclick="game.setBrush('spawn_player')" class="tool-btn" style="border-color: blue;">🔵 Спавн Игрока</button>
+                <button onclick="game.setBrush('spawn_bot')" class="tool-btn" style="border-color: red;">🔴 Спавн Бота</button>
+                <hr>
+                <button onclick="game.setBrush('item_medkit')" class="tool-btn">➕ Аптечка</button>
+                <button onclick="game.setBrush('item_shield')" class="tool-btn">🛡️ Щит</button>
+                <button onclick="game.setBrush('item_pistol')" class="tool-btn">🔫 Пистолет</button>
+                <button onclick="game.setBrush('item_rifle')" class="tool-btn">🔫 Автомат</button>
+                <button onclick="game.setBrush('item_bazooka')" class="tool-btn">🚀 Базука</button>
+                <hr>
+                <div class="save-load">
+                    <button onclick="game.saveMap()">💾 Сохранить</button>
+                    <button onclick="game.loadMap()">📂 Загрузить</button>
+                    <button onclick="game.clearMap()" style="background: darkred;">🗑️ Очистить</button>
+                </div>
+                <p style="text-align:center; color: #888; margin-top:10px;"><small>Нажми 'E' чтобы закрыть</small></p>
+            </div>
         </div>
     </div>
 
