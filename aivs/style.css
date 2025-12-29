@@ -1,11 +1,19 @@
+/* Добавьте эти свойства к body */
 body {
     margin: 0;
     background: #222;
     color: white;
     font-family: Arial, sans-serif;
     overflow: hidden;
+    
+    /* НОВЫЕ СВОЙСТВА ДЛЯ ЦЕНТРИРОВАНИЯ */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh; /* Высота на весь экран */
 }
 
+/* Убедитесь, что UI контейнер тоже центрирован или растянут */
 #ui-container {
     position: absolute;
     top: 0;
@@ -110,11 +118,21 @@ button {
     font-size: 16px;
 }
 
+/* Измените свойства для canvas */
 canvas {
     display: block;
     background: #333;
-    position: absolute;
-    top: 0;
-    left: 0;
+    /* Уберите абсолютное позиционирование */
+    /* position: absolute; */
+    /* top: 0; */
+    /* left: 0; */
+    
+    /* Добавьте автоматические отступы */
+    margin: auto;
+    
     z-index: 1;
+    
+    /* Дополнительно можно задать максимальные размеры */
+    max-width: 100%;
+    max-height: 100vh;
 }
