@@ -1,35 +1,45 @@
-/* Добавьте эти свойства к body */
 body {
     margin: 0;
-    background: #222;
+    background: #1a1a1a; /* Чуть темнее фона игры, чтобы выделить карту */
     color: white;
     font-family: Arial, sans-serif;
     overflow: hidden;
-    
-    /* НОВЫЕ СВОЙСТВА ДЛЯ ЦЕНТРИРОВАНИЯ */
+
+    /* ЦЕНТРИРОВАНИЕ */
     display: flex;
     justify-content: center;
     align-items: center;
-    min-height: 100vh; /* Высота на весь экран */
+    min-height: 100vh;
 }
 
-/* Убедитесь, что UI контейнер тоже центрирован или растянут */
+/* Контейнер интерфейса (поверх всего) */
 #ui-container {
     position: absolute;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    pointer-events: none;
+    pointer-events: none; /* Пропускает клики сквозь пустые места */
     z-index: 10;
 }
 
-/* Меню и HUD интерактивны */
+/* CANVAS - сама игра */
+canvas {
+    display: block;
+    background: #333;
+    box-shadow: 0 0 20px rgba(0,0,0,0.8); /* Тень для красоты */
+    border: 2px solid #555; /* Рамка */
+    z-index: 1;
+    /* Убираем растягивание, размеры задаст JS */
+}
+
+/* ИНТЕРФЕЙС */
 #main-menu, #hud, #editor-ui {
-    pointer-events: auto;
+    pointer-events: auto; /* Включаем клики */
     background: rgba(0, 0, 0, 0.9);
     padding: 20px;
     border-radius: 10px;
+    box-shadow: 0 0 10px black;
 }
 
 #main-menu {
@@ -39,26 +49,25 @@ body {
     transform: translate(-50%, -50%);
     text-align: center;
     border: 1px solid #444;
+    min-width: 300px;
 }
 
 #hud {
     position: absolute;
-    top: 10px;
-    left: 10px;
-    padding: 10px;
+    top: 20px;
+    left: 20px;
 }
 
-/* Стили Редактора */
+/* РЕДАКТОР (Справа) */
 #editor-ui {
     position: absolute;
     right: 0;
     top: 0;
     bottom: 0;
     width: 220px;
-    border-radius: 0; /* Убираем скругление справа */
-    border-left: 2px solid #555;
-    overflow-y: auto; /* Скролл если экран маленький */
-    box-sizing: border-box;
+    border-radius: 0;
+    border-left: 2px solid #4CAF50; /* Зеленая полоска */
+    overflow-y: auto;
 }
 
 .palette h3 {
@@ -75,64 +84,39 @@ body {
     text-align: left;
     background: #333;
     border: 1px solid #555;
-    padding: 8px;
+    padding: 10px;
     color: white;
     cursor: pointer;
     transition: 0.2s;
 }
 
-.tool-btn:hover {
-    background: #444;
-}
+.tool-btn:hover { background: #444; }
 
 .tool-btn.active {
     background: #4CAF50;
     border-color: #fff;
+    color: white;
     font-weight: bold;
 }
 
 .save-load button {
     width: 100%;
     margin: 5px 0;
-    font-size: 14px;
+    padding: 8px;
+    border: none;
     background: #2196F3;
     color: white;
-    border: none;
-    padding: 8px;
-    cursor: pointer;
 }
 
-.save-load button:hover { opacity: 0.8; }
-
-/* Общие стили кнопок */
-button {
-    cursor: pointer;
-}
-
+/* Кнопки меню */
 #main-menu button {
+    width: 100%;
+    margin: 5px 0;
+    padding: 10px;
     background: #4CAF50;
     color: white;
     border: none;
-    padding: 10px 20px;
-    margin: 5px;
     font-size: 16px;
+    cursor: pointer;
 }
-
-/* Измените свойства для canvas */
-canvas {
-    display: block;
-    background: #333;
-    /* Уберите абсолютное позиционирование */
-    /* position: absolute; */
-    /* top: 0; */
-    /* left: 0; */
-    
-    /* Добавьте автоматические отступы */
-    margin: auto;
-    
-    z-index: 1;
-    
-    /* Дополнительно можно задать максимальные размеры */
-    max-width: 100%;
-    max-height: 100vh;
-}
+#main-menu button:hover { background: #45a049; }

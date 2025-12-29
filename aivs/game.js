@@ -89,8 +89,8 @@ class Game {
     constructor() {
         this.canvas = document.getElementById('gameCanvas');
         this.ctx = this.canvas.getContext('2d');
-        this.canvas.width = window.innerWidth;
-        this.canvas.height = window.innerHeight;
+        this.canvas.width = MAP_COLS * TILE_SIZE;  // 30 * 40 = 1200px
+        this.canvas.height = MAP_ROWS * TILE_SIZE; // 20 * 40 = 800px
         
         this.mode = null; 
         this.running = false;
