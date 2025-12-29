@@ -2,16 +2,18 @@
 const TILE = 40;
 const ROWS = 20;
 const COLS = 30;
+const WALL_HP = 50; // Здоровье стены
 
-// --- ОРУЖИЕ ---
+// --- ОРУЖИЕ (Добавлен rate - задержка стрельбы) ---
 const Weapons = {
-    Melee: { name: 'Melee', dmg: 10, ammo: Infinity },
-    Pistol: { name: 'Pistol', dmg: 25, ammo: 12 },
-    Rifle: { name: 'Rifle', dmg: 40, ammo: 30 },
-    Bazooka: { name: 'Bazooka', dmg: 150, ammo: 5 }
+    // rate: сколько кадров ждать между выстрелами (60 кадров = 1 сек)
+    Melee:   { name: 'Melee',   dmg: 10,  ammo: Infinity, rate: 20 },
+    Pistol:  { name: 'Pistol',  dmg: 10,  ammo: 12,       rate: 15 }, // 10 урона * 5 = 50 HP стены
+    Rifle:   { name: 'Rifle',   dmg: 25,  ammo: 30,       rate: 5  }, // 25 урона * 2 = 50 HP стены
+    Bazooka: { name: 'Bazooka', dmg: 50,  ammo: 5,        rate: 60 }  // 50 урона * 1 = 50 HP стены
 };
 
-// --- МОЗГ (NEURAL NETWORK) ---
+// --- НЕЙРОСЕТЬ ---
 class Brain {
     constructor(inN, hidN, outN) {
         this.inN = inN; this.hidN = hidN; this.outN = outN;
@@ -48,37 +50,52 @@ class Entity {
         this.x = x; this.y = y; this.rad = 15; this.hp = 100; this.dead = false;
         this.isBot = isBot; this.color = isBot ? '#ff4444' : '#4488ff';
         this.angle = Math.random() * 6.28;
+        
         this.weapon = { ...Weapons.Melee };
+        this.shootTimer = 0; // Таймер перезарядки
+        
         this.brain = brain || (isBot ? new Brain(9, 14, 4) : null);
         this.fitness = 0;
-        this.rays = [];
+        
+        // Анти-кемперская система
+        this.lastX = x; this.lastY = y;
+        this.campTimer = 0;
     }
 
     update(game) {
         if (this.dead) return;
-        this.fitness += 0.05;
-        this.rays = [];
+        
+        // Убрали "халявный" фитнес за жизнь. Теперь нужно заслужить.
+        // this.fitness += 0.01; 
 
-        // ЗАЩИТА ОТ ОШИБКИ: Если карта не загрузилась, не делаем логику
-        if (!game.mapData) return;
+        if (this.shootTimer > 0) this.shootTimer--;
+
+        // Проверка на кемперство (если бот стоит на месте долго)
+        if (this.isBot) {
+            let distMoved = Math.hypot(this.x - this.lastX, this.y - this.lastY);
+            if (distMoved < 2) {
+                this.campTimer++;
+                if (this.campTimer > 200) this.fitness -= 0.5; // Штраф за простой
+            } else {
+                this.campTimer = 0;
+                this.lastX = this.x; this.lastY = this.y;
+            }
+        }
 
         let mx = 0, my = 0, shoot = false;
 
         if (this.isBot) {
-            // Сенсоры (5 лучей)
+            // Сенсоры
             let inputs = [];
             for (let a of [-0.8, -0.4, 0, 0.4, 0.8]) {
                 let d = 0, max = 200;
                 let dx = Math.cos(this.angle + a), dy = Math.sin(this.angle + a);
                 for (let k = 0; k < max; k += 10) {
-                    let c = Math.floor((this.x + dx * k) / TILE);
-                    let r = Math.floor((this.y + dy * k) / TILE);
-                    // Проверка границ и стен
-                    if (c < 0 || c >= COLS || r < 0 || r >= ROWS || game.mapData[r * COLS + c]) { d = k; break; }
+                    // isWall теперь проверяет > 0, так как у стен есть HP
+                    if (game.isWall(this.x + dx * k, this.y + dy * k)) { d = k; break; }
                     d = max;
                 }
                 inputs.push(d / max);
-                this.rays.push(d);
             }
 
             let ne = game.findNearest(this, game.entities.filter(e => e !== this && !e.dead));
@@ -101,35 +118,27 @@ class Entity {
             if (game.keys['a']) mx = -3; if (game.keys['d']) mx = 3;
         }
 
+        // Физика
         if (mx || my) {
             if (!game.isWall(this.x + mx, this.y + my)) {
-                this.x += mx; this.y += my; this.fitness += 0.01;
+                this.x += mx; this.y += my; 
+                // Маленькая награда за движение, чтобы мотивировать ходить
+                if(this.isBot) this.fitness += 0.005; 
             } else {
-                this.fitness -= 0.1;
+                if(this.isBot) this.fitness -= 0.1; // Штраф за удар об стену
             }
         }
 
-        if (shoot || (game.mode === 'pve' && !this.isBot && game.mouseDown)) {
-            if (this.weapon.name === 'Melee') {
-                game.entities.forEach(e => {
-                    if (e !== this && !e.dead && Math.hypot(e.x - this.x, e.y - this.y) < 45) {
-                        e.takeDamage(10, this);
-                    }
-                });
-            } else if (this.weapon.ammo > 0) {
-                this.weapon.ammo--;
-                game.projectiles.push({
-                    x: this.x, y: this.y,
-                    vx: Math.cos(this.angle) * 12, vy: Math.sin(this.angle) * 12,
-                    dmg: this.weapon.dmg, type: this.weapon.name, owner: this
-                });
-                if (this.weapon.ammo <= 0) this.weapon = { ...Weapons.Melee };
-            }
+        // Стрельба (с проверкой таймера)
+        if ((shoot || (game.mode === 'pve' && !this.isBot && game.mouseDown)) && this.shootTimer <= 0) {
+            this.fire(game);
         }
 
+        // Подбор
         game.items.forEach(it => {
             if (it.active && Math.hypot(this.x - it.x, this.y - it.y) < this.rad + 10) {
-                it.active = false; this.fitness += 50;
+                it.active = false; 
+                if(this.isBot) this.fitness += 20; // Хорошая награда за подбор
                 if (it.type.includes('pistol')) this.weapon = { ...Weapons.Pistol };
                 if (it.type.includes('rifle')) this.weapon = { ...Weapons.Rifle };
                 if (it.type.includes('bazooka')) this.weapon = { ...Weapons.Bazooka };
@@ -138,11 +147,35 @@ class Entity {
         });
     }
 
+    fire(game) {
+        if (this.weapon.name === 'Melee') {
+            game.entities.forEach(e => {
+                if (e !== this && !e.dead && Math.hypot(e.x - this.x, e.y - this.y) < 45) {
+                    e.takeDamage(10, this);
+                    this.shootTimer = this.weapon.rate;
+                }
+            });
+        } else if (this.weapon.ammo > 0) {
+            this.weapon.ammo--;
+            this.shootTimer = this.weapon.rate; // Ставим задержку
+            game.projectiles.push({
+                x: this.x, y: this.y,
+                vx: Math.cos(this.angle) * 12, vy: Math.sin(this.angle) * 12,
+                dmg: this.weapon.dmg, type: this.weapon.name, owner: this
+            });
+            if (this.weapon.ammo <= 0) this.weapon = { ...Weapons.Melee };
+        }
+    }
+
     takeDamage(dmg, attacker) {
         this.hp -= dmg;
         if (this.hp <= 0) {
             this.hp = 0; this.dead = true;
-            if (attacker && attacker.isBot) attacker.fitness += 100;
+            if (attacker && attacker.isBot) {
+                attacker.fitness += 50; // ОГРОМНАЯ НАГРАДА ЗА УБИЙСТВО
+            }
+        } else if (attacker && attacker.isBot) {
+            attacker.fitness += 5; // Награда за попадание
         }
     }
 }
@@ -155,6 +188,7 @@ class Game {
         this.cvs.width = COLS * TILE;
         this.cvs.height = ROWS * TILE;
 
+        // Карта: 0 = пусто, >0 = HP стены
         this.mapData = new Array(ROWS * COLS).fill(0);
         this.mapObjects = [];
 
@@ -165,7 +199,7 @@ class Game {
         this.bestBrain = null;
 
         this.setupEvents();
-        this.loadLocal(); // Здесь был баг, теперь исправлен
+        this.loadLocal(); 
     }
 
     setupEvents() {
@@ -188,36 +222,20 @@ class Game {
         };
     }
 
-    // --- ИСПРАВЛЕННАЯ ЗАГРУЗКА ---
     loadLocal() {
         try {
             let d = localStorage.getItem('battleMap');
             if (d) {
                 let p = JSON.parse(d);
-                // Проверяем оба формата (старый walls, новый w)
-                this.mapData = p.w || p.walls; 
-                this.mapObjects = p.o || p.objects || [];
-
-                // Если загрузился "старый" формат Map (массив пар), сбрасываем объекты
-                if (Array.isArray(this.mapObjects) && this.mapObjects.length > 0 && Array.isArray(this.mapObjects[0])) {
-                    console.log("Старый формат обнаружен, сброс объектов");
-                    this.mapObjects = [];
-                }
+                this.mapData = p.w || new Array(ROWS*COLS).fill(0);
+                this.mapObjects = p.o || [];
             }
-        } catch (e) { console.log('Ошибка загрузки сохранения'); }
-
-        // Если карта сломана или не загрузилась — создаем чистую
-        if (!this.mapData || this.mapData.length !== ROWS * COLS) {
-            this.mapData = new Array(ROWS * COLS).fill(0);
-            this.mapObjects = [];
-        }
+        } catch (e) { console.log('Err load'); }
+        if(!this.mapData || this.mapData.length!==ROWS*COLS) this.mapData=new Array(ROWS*COLS).fill(0);
     }
 
-    saveLocal() { 
-        localStorage.setItem('battleMap', JSON.stringify({ w: this.mapData, o: this.mapObjects })); 
-    }
+    saveLocal() { localStorage.setItem('battleMap', JSON.stringify({ w: this.mapData, o: this.mapObjects })); }
 
-    // --- РЕДАКТОР ---
     clickEditor(e) {
         let r = this.cvs.getBoundingClientRect();
         let c = Math.floor((e.clientX - r.left) / TILE);
@@ -227,7 +245,7 @@ class Game {
         let idx = row * COLS + c;
         this.mapObjects = this.mapObjects.filter(o => !(o.c === c && o.r === row));
 
-        if (this.brush === 'wall') this.mapData[idx] = 1;
+        if (this.brush === 'wall') this.mapData[idx] = WALL_HP; // Ставим стену с полным HP
         else if (this.brush === 'floor') this.mapData[idx] = 0;
         else {
             this.mapData[idx] = 0;
@@ -236,38 +254,26 @@ class Game {
         this.saveLocal();
         this.draw();
     }
-
-    clearMap() { 
-        this.mapData.fill(0); this.mapObjects = []; 
-        this.saveLocal(); this.draw(); 
-    }
-
+    
+    clearMap() { this.mapData.fill(0); this.mapObjects = []; this.saveLocal(); this.draw(); }
+    
     saveToFile() {
         let b = new Blob([JSON.stringify({ w: this.mapData, o: this.mapObjects })], { type: 'text/json' });
-        let a = document.createElement('a');
-        a.href = URL.createObjectURL(b); a.download = 'map.json'; a.click();
+        let a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'map.json'; a.click();
     }
     loadFromFile(inp) {
-        let f = inp.files[0];
-        if (!f) return;
+        let f = inp.files[0]; if (!f) return;
         let r = new FileReader();
         r.onload = e => {
             try {
                 let p = JSON.parse(e.target.result);
-                this.mapData = p.w || p.walls;
-                this.mapObjects = p.o || p.objects || [];
-                // Проверка на целостность
-                if (!this.mapData || this.mapData.length !== ROWS*COLS) throw new Error();
-                
-                this.saveLocal(); 
-                this.draw();
-                alert("Карта загружена!");
-            } catch (err) { alert("Ошибка: неверный формат файла"); }
+                this.mapData = p.w; this.mapObjects = p.o || [];
+                this.saveLocal(); this.draw();
+            } catch (err) {}
         };
         r.readAsText(f);
     }
 
-    // --- ЛОГИКА ---
     start(mode) {
         this.mode = mode;
         this.toggleUI('game');
@@ -315,7 +321,7 @@ class Game {
         for (let i = 0; i < 10; i++) {
             let par = old.length ? (Math.random() < 0.7 ? old[0] : (old[1] || old[0])) : null;
             let br = par ? par.brain.clone() : new Brain(9, 14, 4);
-            if (par) br.mutate(0.15);
+            if (par) br.mutate(0.2); // Увеличили мутацию, чтобы выбить их из круга
             let s = bs[i % bs.length];
             news.push(new Entity(s.c * TILE + 20, s.r * TILE + 20, true, br));
         }
@@ -341,19 +347,27 @@ class Game {
             else if (bAlive === 0) this.endGame("ПОБЕДА!");
         }
 
+        // ОБРАБОТКА ПУЛЬ И СТЕН
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             let p = this.projectiles[i];
             p.x += p.vx; p.y += p.vy;
+            
+            // Попадание в стену
             if (this.isWall(p.x, p.y)) {
-                if (p.type === 'Bazooka') {
-                    let c = Math.floor(p.x / TILE), r = Math.floor(p.y / TILE);
-                    if (c >= 0 && c < COLS && r >= 0 && r < ROWS) {
-                        this.mapData[r * COLS + c] = 0;
-                        this.mapObjects = this.mapObjects.filter(o => !(o.c === c && o.r === r));
+                let c = Math.floor(p.x / TILE), r = Math.floor(p.y / TILE);
+                if (c >= 0 && c < COLS && r >= 0 && r < ROWS) {
+                    let idx = r * COLS + c;
+                    this.mapData[idx] -= p.dmg; // Наносим урон стене
+                    if (this.mapData[idx] <= 0) {
+                        this.mapData[idx] = 0; // Стена сломана
+                        // Если в редакторе был объект стены, удаляем его из списка объектов для красоты
+                        this.mapObjects = this.mapObjects.filter(o => !(o.c===c && o.r===r && o.type==='wall'));
                     }
                 }
                 this.projectiles.splice(i, 1); continue;
             }
+            
+            // Попадание во врага
             let hit = false;
             this.entities.forEach(e => {
                 if (e !== p.owner && !e.dead && Math.hypot(e.x - p.x, e.y - p.y) < e.rad + 5) {
@@ -377,9 +391,14 @@ class Game {
         this.ctx.fillStyle = '#222'; this.ctx.fillRect(0, 0, this.cvs.width, this.cvs.height);
 
         for (let i = 0; i < this.mapData.length; i++) {
-            if (this.mapData[i]) {
+            if (this.mapData[i] > 0) { // Если HP > 0, рисуем стену
                 let c = i % COLS, r = Math.floor(i / COLS);
-                this.ctx.fillStyle = '#666'; this.ctx.fillRect(c * TILE, r * TILE, TILE, TILE);
+                // Цвет зависит от здоровья: чем меньше HP, тем краснее
+                let darkness = Math.floor((this.mapData[i] / WALL_HP) * 100);
+                this.ctx.fillStyle = `hsl(0, 0%, ${30 + darkness/3}%)`;
+                if(this.mapData[i] < WALL_HP) this.ctx.fillStyle = `rgb(${255 - darkness*2}, 50, 50)`; // Поврежденная
+
+                this.ctx.fillRect(c * TILE, r * TILE, TILE, TILE);
                 this.ctx.strokeStyle = '#333'; this.ctx.strokeRect(c * TILE, r * TILE, TILE, TILE);
             }
         }
@@ -395,15 +414,6 @@ class Game {
 
         this.entities.forEach(e => {
             if (e.dead) return;
-            if (this.mode === 'training' && this.speed === 1) {
-                this.ctx.strokeStyle = 'rgba(255,255,0,0.2)';
-                e.rays.forEach((dist, idx) => {
-                    let a = e.angle + [-0.8, -0.4, 0, 0.4, 0.8][idx];
-                    this.ctx.beginPath(); this.ctx.moveTo(e.x, e.y);
-                    this.ctx.lineTo(e.x + Math.cos(a) * dist, e.y + Math.sin(a) * dist);
-                    this.ctx.stroke();
-                });
-            }
             this.ctx.save(); this.ctx.translate(e.x, e.y); this.ctx.rotate(e.angle);
             this.ctx.fillStyle = e.color; this.ctx.beginPath(); this.ctx.arc(0, 0, e.rad, 0, 7); this.ctx.fill();
             this.ctx.fillStyle = 'white'; this.ctx.fillRect(0, -3, 22, 6);
@@ -442,7 +452,8 @@ class Game {
 
     isWall(x, y) {
         let c = Math.floor(x / TILE), r = Math.floor(y / TILE);
-        return c < 0 || c >= COLS || r < 0 || r >= ROWS || this.mapData[r * COLS + c];
+        // Если за картой ИЛИ если HP стены > 0
+        return c < 0 || c >= COLS || r < 0 || r >= ROWS || this.mapData[r * COLS + c] > 0;
     }
     findNearest(me, list) {
         let min = Infinity, t = null;
